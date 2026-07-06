@@ -1,0 +1,30 @@
+{
+  "directed": true,
+  "multigraph": false,
+  "graph": {},
+  "nodes": [
+    {
+      "id": "n1",
+      "label": "auth.py",
+      "type": "module",
+      "file": "src/auth.py"
+    },
+    {
+      "id": "n2",
+      "label": "authenticate_user",
+      "type": "function",
+      "file": "src/auth.py",
+      "qualified_name": "authenticate_user"
+    },
+    {
+      "id": "n3",
+      "label": "issue_jwt",
+      "type": "function",
+      "file": "src/auth.py",
+      "qualified_name": "issue_jwt"
+    }
+  ],
+  "links": [
+    {"source": "n2", "target": "n3", "type": "CALLS"}
+  ]
+}
