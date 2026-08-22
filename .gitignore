@@ -1,4 +1,4 @@
-.agent-resources
+
 .venv/
 __pycache__/
 *.py[cod]
