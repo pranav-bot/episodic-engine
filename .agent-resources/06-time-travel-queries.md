@@ -20,7 +20,7 @@ Default `as_of` queries filter on **`valid_from <= as_of AND (valid_to IS NULL O
 | Mode                 | Parameter                      | Use Case                               |
 | -------------------- | ------------------------------ | -------------------------------------- |
 | **Point-in-time**    | `--as-of 2026-07-01T18:00:00Z` | "What did we know last Tuesday?"       |
-| **Episode-boundary** | `--at-episode ep_0042`         | Exact reproducibility / debugging      |
+| **Episode-boundary** | `--at-episode myrepo-code__ep_000042` | Exact reproducibility / debugging      |
 | **Commit-boundary**  | `--at-commit abc123`           | Align with git history                 |
 | **Range**            | `--from ... --to ...`          | "How did auth edges change this week?" |
 
@@ -50,8 +50,9 @@ ORDER BY n.canonical_label
 ```cypher
 WITH datetime("2026-07-01T18:00:00+05:30") AS as_of
 
-MATCH (src:CanonicalNode {primary_fingerprint: "module:src/auth.py"})
-      -[r:CALLS|IMPORTS|DOCUMENTS*1..3]-(tgt:CanonicalNode)
+MATCH (src:CanonicalNode)
+WHERE "module:src/auth.py:auth" IN src.fingerprints
+MATCH (src)-[r:CALLS|IMPORTS|DOCUMENTS*1..3]-(tgt:CanonicalNode)
 WHERE ALL(rel IN relationships(r) WHERE
   rel.valid_from <= as_of AND
   (rel.valid_to IS NULL OR rel.valid_to > as_of)
@@ -71,7 +72,7 @@ WITH datetime("2026-06-30T00:00:00+05:30") AS as_of
 MATCH (a:CanonicalNode)
 WHERE a.canonical_label CONTAINS "User Auth"
 MATCH (b:CanonicalNode)
-WHERE b.primary_fingerprint = "function:src/auth.py:authenticate_user"
+WHERE "function:src/auth.py:authenticate_user" IN b.fingerprints
 
 CALL apoc.algo.dijkstra(a, b, 'CALLS>|IMPORTS>|DOCUMENTS>|IMPLEMENTS>', 'weight', as_of)
 YIELD path, weight
@@ -94,15 +95,16 @@ SELECT e.episode_id,
        e.recorded_at,
        e.subgraph_id,
        e.trigger_type,
-       json_array_length(e.operations) AS op_count
+       json_array_length(e.operations_json) AS op_count
 FROM episodes e
 WHERE e.subgraph_id = 'myrepo-code'
   AND e.recorded_at >= '2026-06-01T00:00:00Z'
   AND e.recorded_at <  '2026-07-01T00:00:00Z'
   AND EXISTS (
-    SELECT 1 FROM json_each(e.operations) op
-    WHERE json_extract(op.value, '$.payload.fingerprint') LIKE '%auth%'
-       OR json_extract(op.value, '$.payload.label') LIKE '%auth%'
+    SELECT 1 FROM json_each(e.operations_json) op
+    WHERE json_extract(op.value, '$.local_ref.fingerprint') LIKE '%auth%'
+       OR json_extract(op.value, '$.properties.label') LIKE '%auth%'
+       OR json_extract(op.value, '$.fingerprint') LIKE '%auth%'
   )
 ORDER BY e.recorded_at;
 ```
@@ -194,14 +196,14 @@ episodic diff \
       "from": "authenticate_user",
       "to": "issue_jwt",
       "change": "added",
-      "episode_id": "ep_0038"
+      "episode_id": "myrepo-code__ep_000038"
     }
   ],
   "resolution_changes": [
     {
       "merge": "gn_auth_spec → gn_auth",
       "status": "confirmed",
-      "episode_id": "ep_0031"
+      "episode_id": "myrepo-code__ep_000031"
     }
   ]
 }
@@ -243,7 +245,7 @@ When serving time-traveled context, always include:
   "temporal_context": {
     "as_of": "2026-07-01T18:00:00+05:30",
     "mode": "semantic",
-    "latest_episode_included": "ep_0041",
+    "latest_episode_included": "myrepo-code__ep_000041",
     "staleness_warning": null
   }
 }

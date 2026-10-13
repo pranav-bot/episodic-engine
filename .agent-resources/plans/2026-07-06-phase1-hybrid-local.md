@@ -209,12 +209,12 @@ def test_assert_node_op_roundtrip():
         confidence=1.0,
     )
     episode = Episode(
-        episode_id="ep_000001",
+        episode_id="myrepo-code__ep_000001",
         sequence=1,
         recorded_at="2026-07-06T12:00:00Z",
         subgraph_id="myrepo-code",
-        snapshot={"hash": "sha256:abc", "node_count": 1, "edge_count": 0},
-        trigger={"type": "graphify_regen"},
+        snapshot_hash="sha256:abc",
+        trigger_type="graphify_regen",
         operations=[op],
     )
     data = episode.model_dump(mode="json")
@@ -231,9 +231,15 @@ Expected: FAIL — module not found
 
 `src/episodic/models/operations.py` — define `OpType` enum with all 8 op types from [02-temporal-schema-design.md](../02-temporal-schema-design.md): `ASSERT_NODE`, `UPDATE_NODE`, `RETRACT_NODE`, `ASSERT_EDGE`, `RETRACT_EDGE`, `MERGE_ENTITIES`, `SPLIT_ENTITY`, `RESOLVE_CROSS_LINK`. Use pydantic discriminated union on `op` field.
 
-`src/episodic/models/episode.py` — `Episode`, `EpisodeStats`, `SnapshotMeta` pydantic models matching the JSON schema in doc 02.
+`src/episodic/models/episode.py` — `Episode`, `EpisodeStats` pydantic models.
+Canonical `Episode` fields (must match `src/episodic/models/episode.py` and the
+slice implementation): `episode_id` (`{subgraph_id}__ep_{sequence:06d}`),
+`sequence`, `recorded_at`, `subgraph_id`, `snapshot_hash`, `trigger_type`,
+`operations`, `stats`, `parent_episode_id`. Rich `snapshot`/`trigger`/`provenance`
+objects from [02-temporal-schema-design.md](../02-temporal-schema-design.md) are
+logical metadata — persist flattened as `snapshot_hash` + `trigger_type` in this slice.
 
-`src/episodic/models/subgraph.py` — `SubgraphRegistration(subgraph_id, source_path, graphify_out_path, registered_at)`.
+`src/episodic/models/subgraph.py` — `SubgraphRegistration(subgraph_id, source_path, graphify_out_path, latest_snapshot_hash, registered_at, last_seen_at)`.
 
 `src/episodic/models/canonical.py` — `CanonicalNode`, `LocalAlias`, `NodeAssertion` with `valid_from`, `valid_to`.
 
@@ -270,7 +276,8 @@ from episodic.models.subgraph import SubgraphRegistration
 
 
 class EpisodeStorePort(Protocol):
-    def register_subgraph(self, reg: SubgraphRegistration) -> None: ...
+    def upsert_subgraph(self, reg: SubgraphRegistration) -> None: ...
+    def touch_subgraph(self, subgraph_id: str, last_seen_at: str) -> None: ...
     def get_subgraph(self, subgraph_id: str) -> SubgraphRegistration | None: ...
     def list_subgraphs(self) -> list[SubgraphRegistration]: ...
     def append_episode(self, episode: Episode) -> None: ...
@@ -331,21 +338,22 @@ def test_append_and_retrieve_episode():
             source_path="/tmp/repo",
             graphify_out_path="/tmp/repo/graphify-out",
             registered_at="2026-07-06T00:00:00Z",
+            last_seen_at="2026-07-06T00:00:00Z",
         ))
         ep = Episode(
-            episode_id="ep_000001",
+            episode_id="test-repo__ep_000001",
             sequence=1,
             recorded_at="2026-07-06T12:00:00Z",
             subgraph_id="test-repo",
-            snapshot={"hash": "sha256:abc", "node_count": 10, "edge_count": 20},
-            trigger={"type": "graphify_regen"},
+            snapshot_hash="sha256:abc",
+            trigger_type="graphify_regen",
             operations=[],
         )
         store.append_episode(ep)
-        loaded = store.get_episode("ep_000001")
+        loaded = store.get_episode("test-repo__ep_000001")
         assert loaded is not None
         assert loaded.subgraph_id == "test-repo"
-        assert store.latest_episode("test-repo").episode_id == "ep_000001"
+        assert store.latest_episode("test-repo").episode_id == "test-repo__ep_000001"
 ```
 
 - [ ] **Step 2: Run test — expect FAIL**
@@ -354,9 +362,11 @@ Run: `pytest tests/integration/test_sqlite_episode_store.py -v`
 
 - [ ] **Step 3: Implement SQLiteEpisodeStore**
 
-Schema tables (create on init):
-- `subgraphs(subgraph_id, source_path, graphify_out_path, registered_at)`
-- `episodes(episode_id, sequence, recorded_at, subgraph_id, snapshot_json, trigger_json, operations_json, parent_episode_id)`
+Schema tables (create on init — must match `src/episodic/drivers/sqlite_episode_store.py`
+and the PRD slice schema; `fingerprints`/`local_aliases` are the Phase 1-full
+addition for Tier 1):
+- `subgraphs(subgraph_id, source_path, graphify_out_path, latest_snapshot_hash, registered_at, last_seen_at)`
+- `episodes(episode_id, sequence, recorded_at, subgraph_id, snapshot_hash, trigger_type, operations_json, stats_json, parent_episode_id)` with `UNIQUE(subgraph_id, sequence)`
 - `fingerprints(fingerprint, global_id)` — unique on fingerprint
 - `local_aliases(subgraph_id, snapshot_hash, local_id, global_id)` — composite PK
 
@@ -487,8 +497,8 @@ def test_identical_snapshots_produce_no_ops():
 
 ```python
 def test_tier1_reuses_existing_global_id(store):
-    store.save_fingerprint("gn_existing", "module:src/auth.py")
-    op = AssertNodeOp(..., local_ref={..., "fingerprint": "module:src/auth.py"})
+    store.save_fingerprint("gn_existing", "module:src/auth.py:auth")
+    op = AssertNodeOp(..., local_ref={..., "fingerprint": "module:src/auth.py:auth"})
     resolved = tier1_resolve_node(op, store)
     assert resolved.global_id == "gn_existing"
 ```
@@ -530,7 +540,7 @@ def test_apply_assert_node(neo4j_store):
         global_id="gn_test",
         properties={"label": "auth", "type": "module"},
         confidence=1.0,
-        local_ref={"subgraph_id": "t", "local_id": "n1", "fingerprint": "module:src/auth.py"},
+        local_ref={"subgraph_id": "t", "local_id": "n1", "fingerprint": "module:src/auth.py:auth"},
     )
     episode = make_episode(operations=[op])
     neo4j_store.apply_episode(episode)
@@ -543,8 +553,11 @@ def test_apply_assert_node(neo4j_store):
 Cypher on init (constraints):
 ```cypher
 CREATE CONSTRAINT canonical_node_id IF NOT EXISTS FOR (n:CanonicalNode) REQUIRE n.global_id IS UNIQUE;
-CREATE CONSTRAINT fingerprint IF NOT EXISTS FOR (n:CanonicalNode) REQUIRE n.primary_fingerprint IS UNIQUE;
 ```
+Do NOT add `UNIQUE(n.primary_fingerprint)` — canonical nodes carry a
+`fingerprints: string[]` array and one node may own several fingerprints
+(doc concept + code module merged). Fingerprint→global_id uniqueness is
+enforced in the SQLite `fingerprints` table instead.
 
 `apply_episode`: for each op type, run appropriate Cypher:
 - `ASSERT_NODE`: `MERGE (n:CanonicalNode {global_id: $gid}) SET ...` + create assertion properties with `valid_from`, `valid_to: null`
@@ -572,7 +585,7 @@ def test_ingest_two_snapshots_creates_two_episodes(tmp_paths, stores):
     ep1 = store.latest_episode("test-repo")  # after v1
     # ... verify sequence increments, v2 has ops, v1 unchanged
     identical = pipeline.ingest("test-repo", graph_json_path=v2_path)  # re-ingest same
-    assert identical.skipped  # zero ops, no new episode
+    assert identical.status == "unchanged"  # zero ops, no new episode (SaveResult.status)
 ```
 
 - [ ] **Step 2: Implement pipeline.py**
@@ -604,8 +617,10 @@ def test_ingest_two_snapshots_creates_two_episodes(tmp_paths, stores):
 ```python
 def test_materialize_excludes_retracted_nodes(episodes):
     view = materialize(subgraph_id="test", as_of="2026-07-06T18:00:00Z", episodes=episodes)
-    assert "removed_function" not in [n.label for n in view.nodes]
-    assert "authenticate_user" in [n.label for n in view.nodes]
+    # view is a networkx.DiGraph keyed by global_id; labels live in node attrs
+    labels = [attrs.get("label") for _, attrs in view.nodes(data=True)]
+    assert "removed_function" not in labels
+    assert "authenticate_user" in labels
 ```
 
 - [ ] **Step 2: Implement materializer.py**
@@ -652,17 +667,21 @@ Also: `graphify_path`, `graphify_explain` wrappers.
 
 - [ ] **Step 1: Implement typer commands**
 
+> Note: `init`, `save`, `status` already exist from the Single Subgraph Save slice
+> (see `prds/2026-07-06-single-subgraph-save.md`). Do not rename them to
+> `register`/`ingest`. This task keeps those commands and adds `query`.
+
 ```python
 app = typer.Typer()
 
 @app.command()
-def register(subgraph_id: str, source: Path, graphify_out: Path): ...
+def init(): ...  # already implemented — keep as-is
 
 @app.command()
-def ingest(subgraph_id: str, graph: Path | None = None): ...
+def save(subgraph_id: str, source: Path, graphify_out: Path | None): ...  # already implemented — keep as-is
 
 @app.command()
-def status(): ...
+def status(): ...  # already implemented — keep as-is
 
 @app.command()
 def query(
@@ -693,7 +712,7 @@ def query(
 - [ ] **Step 1: Implement bootstrap import**
 
 `episodic bootstrap --from-global ~/.graphify/global-graph.json`:
-- Create synthetic `ep_000000` with `trigger.type: bootstrap_import`
+- Create synthetic `{subgraph_id}__ep_000000` with `trigger_type: bootstrap_import`
 - All nodes → `ASSERT_NODE`, all edges → `ASSERT_EDGE`
 - All assertions get `valid_from = import_time`
 
@@ -713,8 +732,8 @@ Run: `pytest tests/integration/test_neo4j_projection.py -v -m neo4j` (with Docke
 ```bash
 docker compose up -d
 cp config.example.yaml ~/.episodic-engine/config.yaml
-episodic register myrepo-code --source ./examples/repo --graphify-out ./examples/repo/graphify-out
-episodic ingest myrepo-code
+episodic init
+episodic save --id myrepo-code --source ./examples/repo --graphify-out ./examples/repo/graphify-out
 episodic status
 episodic query "auth flow" --scope subgraph --subgraph myrepo-code
 episodic query "auth" --scope supergraph

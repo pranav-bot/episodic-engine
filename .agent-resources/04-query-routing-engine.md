@@ -37,14 +37,14 @@ flowchart TD
 
 ### Scope Signal Examples
 
-| Query Pattern | Scope | Reason |
-|---------------|-------|--------|
-| "What does the current auth code look like?" | SUBGRAPH (`code-repo`) | "current code" → code source |
-| "Show me the auth flow in auth.py" | SUBGRAPH | Explicit file/symbol reference |
-| "Connect the original spec sheet to the implementation" | SUPERGRAPH | Cross-corpus linking |
-| "How did our understanding of JWT change since last month?" | SUPERGRAPH + temporal | Cross-time + likely cross-source |
-| "What did the docs say about auth last Tuesday?" | SUBGRAPH (`product-docs`) + temporal | Source + time pinned |
-| "Compare spec requirements to test coverage" | SUPERGRAPH | Spans docs + code + tests |
+| Query Pattern                                               | Scope                                | Reason                           |
+| ----------------------------------------------------------- | ------------------------------------ | -------------------------------- |
+| "What does the current auth code look like?"                | SUBGRAPH (`code-repo`)               | "current code" → code source     |
+| "Show me the auth flow in auth.py"                          | SUBGRAPH                             | Explicit file/symbol reference   |
+| "Connect the original spec sheet to the implementation"     | SUPERGRAPH                           | Cross-corpus linking             |
+| "How did our understanding of JWT change since last month?" | SUPERGRAPH + temporal                | Cross-time + likely cross-source |
+| "What did the docs say about auth last Tuesday?"            | SUBGRAPH (`product-docs`) + temporal | Source + time pinned             |
+| "Compare spec requirements to test coverage"                | SUPERGRAPH                           | Spans docs + code + tests        |
 
 ---
 
@@ -244,13 +244,13 @@ Token budget: prioritize path nodes > 1-hop neighbors > community context (mirro
 
 ## Failure Modes
 
-| Situation | Router Behavior |
-|-----------|-----------------|
-| No entity matches | Return `scope: supergraph`, broad search; suggest subgraph list |
-| Ambiguous entity (two auth modules) | Return disambiguation candidates to LLM |
-| `as_of` before first episode | Error with earliest available timestamp |
-| Subgraph stale (> N days) | Warning in response; suggest regen |
-| Low routing confidence | Include `routing.confidence` + alternate scopes |
+| Situation                           | Router Behavior                                                 |
+| ----------------------------------- | --------------------------------------------------------------- |
+| No entity matches                   | Return `scope: supergraph`, broad search; suggest subgraph list |
+| Ambiguous entity (two auth modules) | Return disambiguation candidates to LLM                         |
+| `as_of` before first episode        | Error with earliest available timestamp                         |
+| Subgraph stale (> N days)           | Warning in response; suggest regen                              |
+| Low routing confidence              | Include `routing.confidence` + alternate scopes                 |
 
 ---
 

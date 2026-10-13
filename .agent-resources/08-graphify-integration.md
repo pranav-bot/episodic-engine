@@ -138,18 +138,18 @@ Graphify uses NetworkX `node_link_data` compatible JSON. Typical node fields:
 
 | Trigger | graphify Command | Episodic Action |
 |---------|------------------|-----------------|
-| Initial setup | `graphify .` per source | `episodic register` + first ingest |
-| Code change (git commit) | Hook auto-runs AST rebuild | `episodic ingest --subgraph X` |
-| Docs/PDF change | `graphify --update ./docs` | Ingest with semantic delta |
+| Initial setup | `graphify .` per source | `episodic init` once + `episodic save --id X --source ...` (registers on first save) |
+| Code change (git commit) | Hook auto-runs AST rebuild | `episodic save --id X --source ...` |
+| Docs/PDF change | `graphify --update ./docs` | `episodic save --id X --source ...` with semantic delta |
 | Manual refresh | `graphify . --force` | Full snapshot diff |
 | Cross-project | `graphify global add` | Optional bootstrap only |
 
 ### Recommended Wrapper
 
 ```bash
-# Episodic wrapper — runs graphify then ingests
-episodic refresh --subgraph myrepo-code --source ~/dev/myrepo
-# Internally: graphify ~/dev/myrepo && episodic ingest ...
+# Episodic wrapper — runs graphify then saves (Phase 2 convenience; current slice: run `episodic save` directly)
+episodic save --id myrepo-code --source ~/dev/myrepo
+# Internally (slice behavior): graphify ~/dev/myrepo && persist snapshot + episode
 ```
 
 ---
@@ -172,7 +172,7 @@ Do not reimplement graphify's structural query ranking — it already optimizes 
 For users with existing graphify global setup:
 
 1. Import `~/.graphify/global-graph.json` as **seed Supergraph**
-2. Create synthetic `episode_0000` with `trigger.type: bootstrap_import`
+2. Create synthetic `{subgraph_id}__ep_000000` with `trigger_type: bootstrap_import`
 3. Register each `--as` alias as a subgraph entry
 4. Subsequent per-subgraph ingests emit proper delta episodes
 

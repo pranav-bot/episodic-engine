@@ -148,11 +148,13 @@ function merge_subgraphs(subgraph_a, subgraph_b, supergraph, episode_log):
     for node in snapshot_b.nodes:
         candidates = []
 
-        # Tier 1
+        # Tier 1 — deterministic fingerprint match. There is no ALIAS_NODE op type;
+        # reuse the existing global_id via ASSERT_NODE with the matched global_id
+        # and record the (subgraph_id, local_id) → global_id mapping in local_aliases.
         fp = compute_fingerprint(node)
         match = supergraph.find_by_fingerprint(fp)
         if match:
-            episode.add(ALIAS_NODE, global_id=match, local=node)
+            episode.add(ASSERT_NODE, global_id=match, local=node, alias_only=True)
             continue
 
         # Tier 2 blocking

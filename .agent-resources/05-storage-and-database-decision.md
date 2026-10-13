@@ -148,25 +148,36 @@ resolution_status: confirmed | tentative | contested
 
 ```
 UNIQUE (CanonicalNode.global_id)
-UNIQUE (CanonicalNode.primary_fingerprint)
 INDEX ON (CanonicalNode.entity_type)
 INDEX ON ()-[r:CALLS]-() (r.valid_from, r.valid_to)  // temporal range queries
 ```
+
+Fingerprint uniqueness lives in the warm episode log (`fingerprints.fingerprint
+UNIQUE → global_id`), not as a Neo4j uniqueness constraint. A canonical node
+holds a `fingerprints: string[]` array (see doc 02) — enforcing
+`UNIQUE(primary_fingerprint)` would forbid multi-fingerprint merges (e.g. doc
+concept + code module on one node).
 
 ---
 
 ## SQLite Episode Log Schema (Summary)
 
-See [02-temporal-schema-design.md](./02-temporal-schema-design.md) for full JSON schemas. Relational tables:
+See [02-temporal-schema-design.md](./02-temporal-schema-design.md) for full JSON schemas,
+the slice PRD for the minimal columns, and the Phase 1 plan Task 4 for DDL.
+Relational tables (slice ships `subgraphs` + `episodes`; `fingerprints` +
+`local_aliases` land with Tier 1; `materialized_checkpoints` is Phase 2):
 
 | Table | Purpose |
 |-------|--------|
-| `subgraphs` | Registered sources |
-| `snapshots` | `(subgraph_id, hash, path, created_at)` |
-| `episodes` | Append-only episode headers |
-| `episode_ops` | Normalized ops (optional — or JSON blob per episode) |
-| `local_aliases` | `(subgraph_id, snapshot_hash, local_id) → global_id` |
-| `materialized_checkpoints` | Optional cached views at episode N |
+| `subgraphs` | Registered sources (`subgraph_id, source_path, graphify_out_path, latest_snapshot_hash, registered_at, last_seen_at`) |
+| `episodes` | Append-only episodes (`episode_id, sequence, recorded_at, subgraph_id, snapshot_hash, trigger_type, operations_json, stats_json, parent_episode_id`; `UNIQUE(subgraph_id, sequence)`) |
+| `fingerprints` | `fingerprint UNIQUE → global_id` (Phase 1-full, Tier 1) |
+| `local_aliases` | `(subgraph_id, snapshot_hash, local_id) → global_id` (Phase 1-full, Tier 1) |
+| `materialized_checkpoints` | Optional cached views at episode N (Phase 2) |
+
+There is no separate `snapshots` table (snapshots are content-addressed blobs;
+`latest_snapshot_hash` lives on `subgraphs`) and no normalized `episode_ops`
+table (ops are stored as `operations_json` per episode).
 
 ---
 

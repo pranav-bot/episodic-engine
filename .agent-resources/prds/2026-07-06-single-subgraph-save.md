@@ -98,7 +98,7 @@ episodic save --id <subgraph_id> --source <path> [--graphify-out <path>]
 5. **Else:**
    - Store blob at content-addressed path (skip if hash exists globally)
    - Register/update subgraph in SQLite
-   - **First save:** emit bootstrap episode `ep_000001` with all nodes/edges as `ASSERT_*`
+   - **First save:** emit bootstrap episode `{subgraph_id}__ep_000001` (e.g. `myrepo__ep_000001`) with all nodes/edges as `ASSERT_*`
    - **Subsequent save:** diff vs prior snapshot → delta episode
    - Update registry `latest_snapshot_hash`, `last_seen_at`, counts
 6. Print summary: episode id, ops count, node/edge counts
@@ -138,7 +138,7 @@ Per [02-temporal-schema-design.md](../02-temporal-schema-design.md), simplified 
 
 | Column | Type |
 |--------|------|
-| `episode_id` | TEXT PK (`ep_000001`) |
+| `episode_id` | TEXT PK (`{subgraph_id}__ep_000001`, e.g. `myrepo__ep_000001`) |
 | `sequence` | INTEGER (per subgraph, monotonic) |
 | `recorded_at` | TEXT ISO8601 |
 | `subgraph_id` | TEXT FK |
@@ -146,6 +146,7 @@ Per [02-temporal-schema-design.md](../02-temporal-schema-design.md), simplified 
 | `trigger_type` | TEXT (`graphify_regen`) |
 | `operations_json` | TEXT (JSON array) |
 | `stats_json` | TEXT |
+| `parent_episode_id` | TEXT NULL (namespaced parent, NULL for first episode) |
 
 Operation types used in this slice: `ASSERT_NODE`, `UPDATE_NODE`, `RETRACT_NODE`, `ASSERT_EDGE`, `RETRACT_EDGE`.
 
@@ -171,8 +172,8 @@ sequenceDiagram
     CLI->>CLI: hash bytes
     CLI->>B: put(graph.json)
     CLI->>DB: register subgraph
-    CLI->>DB: append ep_000001 (all ASSERT_*)
-    CLI-->>U: saved ep_000001
+    CLI->>DB: append myrepo__ep_000001 (all ASSERT_*)
+    CLI-->>U: saved myrepo__ep_000001
 ```
 
 ### Re-save — Unchanged
@@ -202,7 +203,7 @@ sequenceDiagram
     CLI->>B: put new blob
     CLI->>D: diff(old_snapshot, new_snapshot)
     D-->>CLI: delta ops
-    CLI->>DB: append ep_00000N
+    CLI->>DB: append {subgraph_id}__ep_00000N
     CLI->>DB: UPDATE latest_snapshot_hash
 ```
 
@@ -267,7 +268,7 @@ Shell wrapper for first-time dev bootstrap (repo root):
 
 - [ ] `./scripts/setup.sh` completes; `~/.episodic-engine/.initialized` exists
 - [ ] `episodic save` without init → clear error + hint to run init
-- [ ] First save on a graphify-able source → blob on disk + `ep_000001` in SQLite
+- [ ] First save on a graphify-able source → blob on disk + `{subgraph_id}__ep_000001` in SQLite
 - [ ] Re-save unchanged source → no new episode; `last_seen_at` updated
 - [ ] Re-save after deleting a node in source → episode with `RETRACT_*` ops
 - [ ] `episodic status` lists subgraph with correct hash prefix and episode count

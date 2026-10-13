@@ -53,19 +53,19 @@ When `valid_to IS NULL`, the assertion is **currently active** (for the latest m
 ## Episode Record Schema
 
 Episodes are the **unit of history** — one episode per subgraph ingestion event (or manual merge).
+Episode IDs are namespaced per subgraph: `{subgraph_id}__ep_{sequence:06d}`
+(e.g. `myrepo-code__ep_000042`). Bare `ep_000042` IDs are deprecated — they
+collide across subgraphs. `sequence` is monotonic per `subgraph_id`;
+`parent_episode_id` uses the same namespaced form.
 
 ```json
 {
-  "episode_id": "ep_000042",
+  "episode_id": "myrepo-code__ep_000042",
   "sequence": 42,
   "recorded_at": "2026-07-06T12:00:00Z",
   "subgraph_id": "myrepo-code",
-  "snapshot": {
-    "hash": "sha256:a1b2c3...",
-    "graphify_version": "0.9.2",
-    "node_count": 1842,
-    "edge_count": 5103
-  },
+  "snapshot_hash": "sha256:a1b2c3...",
+  "trigger_type": "graphify_regen",
   "source_provenance": {
     "type": "git",
     "commit": "abc123def",
@@ -76,7 +76,7 @@ Episodes are the **unit of history** — one episode per subgraph ingestion even
     "type": "graphify_regen",
     "mode": "ast_only | full_semantic"
   },
-  "parent_episode_id": "ep_000041",
+  "parent_episode_id": "myrepo-code__ep_000041",
   "stats": {
     "ops_total": 37,
     "nodes_added": 12,
@@ -161,7 +161,7 @@ Episodes are the **unit of history** — one episode per subgraph ingestion even
       "label": "User Auth"
     }
   ],
-  "created_episode_id": "ep_000001",
+  "created_episode_id": "myrepo-code__ep_000001",
   "resolution_status": "confirmed | tentative | contested"
 }
 ```
@@ -181,7 +181,7 @@ Node **properties** (label, docstring, file path, etc.) live on assertions, not 
   "assertions": [
     {
       "assertion_id": "ea_000120",
-      "episode_id": "ep_000015",
+      "episode_id": "myrepo-code__ep_000015",
       "valid_from": "2026-06-15T09:00:00Z",
       "valid_to": null,
       "confidence": 0.91,
@@ -229,14 +229,14 @@ Node **properties** (label, docstring, file path, etc.) live on assertions, not 
     {
       "snapshot_hash": "sha256:a1b2c3...",
       "ingested_at": "2026-07-06T12:00:00Z",
-      "episode_id": "ep_000042",
-      "blob_path": "snapshots/myrepo-code/a1b2c3.graph.json",
+      "episode_id": "myrepo-code__ep_000042",
+      "blob_path": "snapshots/a1/sha256:a1b2....json",
       "node_count": 1842,
       "edge_count": 5103
     }
   ],
   "latest_snapshot_hash": "sha256:a1b2c3...",
-  "latest_episode_id": "ep_000042"
+  "latest_episode_id": "myrepo-code__ep_000042"
 }
 ```
 
