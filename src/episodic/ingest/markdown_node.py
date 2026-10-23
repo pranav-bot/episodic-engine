@@ -10,8 +10,8 @@ def parse_markdown_node(
     path: Path,
     *,
     node_id: str,
-    node_type: str,
     title: str,
+    description: str,
 ) -> dict[str, Any]:
     """Build a graph node from plain Markdown and interactive details."""
     if not path.is_file():
@@ -21,8 +21,8 @@ def parse_markdown_node(
 
     return {
         "id": node_id,
-        "type": node_type,
         "label": title,
+        "description": description,
         "file": str(path.resolve()),
         "content": path.read_text(encoding="utf-8"),
     }
@@ -33,16 +33,16 @@ def ingest_markdown_node(
     graph_json_path: Path,
     *,
     node_id: str,
-    node_type: str,
     title: str,
+    description: str,
     parent_id: str | None = None,
 ) -> dict[str, Any]:
     """Append one Markdown node, optionally as a child of an existing node."""
     node = parse_markdown_node(
         markdown_path.resolve(),
         node_id=node_id,
-        node_type=node_type,
         title=title,
+        description=description,
     )
     graph_path = graph_json_path.resolve()
     if not graph_path.is_file():

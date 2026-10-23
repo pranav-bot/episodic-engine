@@ -49,8 +49,8 @@ def ingest_node_cmd(
             + (", ".join(existing_ids) if existing_ids else "(none; node will be top-level)")
         )
         node_id = typer.prompt("Node ID")
-        node_type = typer.prompt("Node type", default="concept")
         title = typer.prompt("Node title")
+        description = typer.prompt("Node description")
         parent_id = typer.prompt(
             "Parent node ID (leave blank for a top-level node)",
             default="",
@@ -60,8 +60,8 @@ def ingest_node_cmd(
             source,
             graph_path,
             node_id=node_id,
-            node_type=node_type,
             title=title,
+            description=description,
             parent_id=parent_id,
         )
     except (FileNotFoundError, ValueError, OSError, json.JSONDecodeError) as exc:

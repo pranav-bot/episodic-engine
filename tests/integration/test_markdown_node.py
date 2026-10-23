@@ -12,8 +12,8 @@ def test_parse_markdown_node_reads_frontmatter_and_body(tmp_path):
     node = parse_markdown_node(
         path,
         node_id="auth-note",
-        node_type="concept",
         title="Authentication",
+        description="Handles user authentication.",
     )
 
     assert node["id"] == "auth-note"
@@ -31,8 +31,8 @@ def test_ingest_markdown_node_updates_graph_file(tmp_path):
         markdown,
         graph,
         node_id="auth-note",
-        node_type="concept",
         title="Authentication",
+        description="Handles user authentication.",
     )
 
     assert node["id"] == "auth-note"
@@ -52,8 +52,8 @@ def test_ingest_markdown_node_rejects_duplicate_id(tmp_path):
             markdown,
             graph,
             node_id="auth-note",
-            node_type="concept",
             title="Authentication",
+            description="Handles user authentication.",
         )
 
 
@@ -69,8 +69,8 @@ def test_ingest_markdown_node_creates_parent_child_link(tmp_path):
         markdown,
         graph,
         node_id="child",
-        node_type="concept",
         title="Child",
+        description="Child node.",
         parent_id="root",
     )
 
@@ -91,7 +91,7 @@ def test_ingest_markdown_node_rejects_missing_parent(tmp_path):
             markdown,
             graph,
             node_id="child",
-            node_type="concept",
             title="Child",
+            description="Child node.",
             parent_id="missing",
         )
