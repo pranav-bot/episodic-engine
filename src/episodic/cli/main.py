@@ -6,12 +6,15 @@ and checking status of tracked subgraphs.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import typer
+import yaml
 
 from episodic.config import load_config
 from episodic.init_service import is_initialized, run_init
+from episodic.ingest.markdown_node import ingest_markdown_node
 from episodic.ingest.save_pipeline import GraphifyRunError, SavePipeline
 
 app = typer.Typer(
@@ -92,6 +95,34 @@ def save_cmd(
         f"saved: subgraph={result.subgraph_id} episode={result.episode_id} "
         f"ops={result.ops_total} hash={result.snapshot_hash} "
         f"nodes={result.node_count} edges={result.edge_count}"
+    )
+
+
+@app.command("ingest-node")
+def ingest_node_cmd(
+    id: str = typer.Option(..., "--id", help="Subgraph slug (e.g. myrepo-code)"),
+    source: Path = typer.Option(..., "--source", help="Markdown node file"),
+    graph_json: Path | None = typer.Option(
+        None,
+        "--graph-json",
+        help="Existing graph.json to append this node to; omit for a one-node graph",
+    ),
+) -> None:
+    """Ingest one Markdown node as a graph snapshot."""
+    _require_init()
+    config = load_config()
+    try:
+        result = ingest_markdown_node(
+            SavePipeline(config), id, source, graph_json_path=graph_json
+        )
+    except (FileNotFoundError, ValueError, OSError, yaml.YAMLError, json.JSONDecodeError) as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(
+        f"{result.status}: subgraph={result.subgraph_id} "
+        f"episode={result.episode_id or '-'} nodes={result.node_count} "
+        f"edges={result.edge_count}"
     )
 
 
