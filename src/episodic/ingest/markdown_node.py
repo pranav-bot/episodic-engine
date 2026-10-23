@@ -6,53 +6,44 @@ import json
 from pathlib import Path
 from typing import Any
 
-import yaml
-
-def parse_markdown_node(path: Path) -> dict[str, Any]:
-    """Parse a Markdown file with YAML frontmatter into a graph node."""
+def parse_markdown_node(
+    path: Path,
+    *,
+    node_id: str,
+    node_type: str,
+    title: str,
+) -> dict[str, Any]:
+    """Build a graph node from plain Markdown and interactive details."""
     if not path.is_file():
         raise FileNotFoundError(f"Markdown file not found: {path}")
     if path.suffix.lower() != ".md":
         raise ValueError(f"Markdown source must have a .md extension: {path}")
 
-    text = path.read_text(encoding="utf-8")
-    if not text.startswith("---"):
-        raise ValueError("Markdown node must start with YAML frontmatter")
-
-    lines = text.splitlines()
-    try:
-        end = next(i for i, line in enumerate(lines[1:], 1) if line == "---")
-    except StopIteration as exc:
-        raise ValueError("Markdown node frontmatter is not closed") from exc
-
-    metadata = yaml.safe_load("\n".join(lines[1:end])) or {}
-    if not isinstance(metadata, dict):
-        raise ValueError("Markdown node frontmatter must be a YAML mapping")
-    missing = [key for key in ("id", "type", "title") if not metadata.get(key)]
-    if missing:
-        raise ValueError(f"Markdown node frontmatter missing: {', '.join(missing)}")
-
-    properties = {
-        key: value
-        for key, value in metadata.items()
-        if key not in {"id", "type", "title"} and value is not None
-    }
-    properties["content"] = "\n".join(lines[end + 1 :]).lstrip("\n")
     return {
-        "id": str(metadata["id"]),
-        "type": str(metadata["type"]),
-        "label": str(metadata["title"]),
+        "id": node_id,
+        "type": node_type,
+        "label": title,
         "file": str(path.resolve()),
-        **properties,
+        "content": path.read_text(encoding="utf-8"),
     }
 
 
 def ingest_markdown_node(
     markdown_path: Path,
     graph_json_path: Path,
+    *,
+    node_id: str,
+    node_type: str,
+    title: str,
+    parent_id: str | None = None,
 ) -> dict[str, Any]:
-    """Append one Markdown node to an existing graph.json."""
-    node = parse_markdown_node(markdown_path.resolve())
+    """Append one Markdown node, optionally as a child of an existing node."""
+    node = parse_markdown_node(
+        markdown_path.resolve(),
+        node_id=node_id,
+        node_type=node_type,
+        title=title,
+    )
     graph_path = graph_json_path.resolve()
     if not graph_path.is_file():
         raise FileNotFoundError(f"graph.json not found: {graph_path}")
@@ -62,7 +53,15 @@ def ingest_markdown_node(
     if any(existing.get("id") == node["id"] for existing in graph["nodes"]):
         raise ValueError(f"node already exists: {node['id']}")
     graph.setdefault("links", graph.get("edges") or [])
+    if parent_id is not None and not any(
+        existing.get("id") == parent_id for existing in graph["nodes"]
+    ):
+        raise ValueError(f"parent node not found: {parent_id}")
     graph["nodes"].append(node)
+    if parent_id is not None:
+        graph["links"].append(
+            {"source": parent_id, "target": node["id"], "type": "parent"}
+        )
     graph_path.write_text(
         json.dumps(graph, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
