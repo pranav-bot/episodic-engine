@@ -1,0 +1,24 @@
+import json
+
+import pytest
+
+from episodic.graph import create_graph
+
+
+def test_create_graph_writes_empty_graph(tmp_path):
+    path = create_graph(tmp_path / "knowledge")
+
+    assert path.name == "graph.json"
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        "nodes": [],
+        "links": [],
+    }
+
+
+def test_create_graph_does_not_overwrite_existing_graph(tmp_path):
+    path = create_graph(tmp_path)
+
+    with pytest.raises(FileExistsError):
+        create_graph(tmp_path)
+
+    assert json.loads(path.read_text(encoding="utf-8"))["nodes"] == []

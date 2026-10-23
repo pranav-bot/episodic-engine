@@ -13,6 +13,7 @@ import typer
 import yaml
 
 from episodic.config import load_config
+from episodic.graph import GRAPH_STRUCTURE, create_graph
 from episodic.init_service import is_initialized, run_init
 from episodic.ingest.markdown_node import ingest_markdown_node
 from episodic.ingest.save_pipeline import GraphifyRunError, SavePipeline
@@ -22,6 +23,41 @@ app = typer.Typer(
     help="Episodic memory layer for graphify knowledge graphs.",
     no_args_is_help=True,
 )
+
+
+@app.command("create-graph")
+def create_graph_cmd(
+    directory: Path = typer.Option(..., "--directory", help="Directory for graph.json"),
+    id: str | None = typer.Option(
+        None, "--id", help="Subgraph slug to register the empty graph"
+    ),
+    register: bool = typer.Option(
+        False, "--register", help="Persist the empty graph in Episodic storage"
+    ),
+) -> None:
+    """Create an empty graph and explain how to add nodes."""
+    if register and not id:
+        typer.secho("--id is required with --register", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
+
+    try:
+        graph_path = create_graph(directory)
+        if register:
+            _require_init()
+            result = SavePipeline(load_config()).save(
+                id,
+                source=directory,
+                skip_graphify=True,
+                graph_json_path=graph_path,
+            )
+    except (FileExistsError, FileNotFoundError, ValueError, OSError) as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(f"created: {graph_path}")
+    if register:
+        typer.echo(f"registered: subgraph={result.subgraph_id} episode={result.episode_id}")
+    typer.echo(GRAPH_STRUCTURE)
 
 
 def _require_init() -> None:
