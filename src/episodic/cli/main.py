@@ -1,3 +1,9 @@
+"""CLI for Episodic Engine.
+
+Provides commands for initializing the engine, saving snapshots,
+and checking status of tracked subgraphs.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -16,6 +22,11 @@ app = typer.Typer(
 
 
 def _require_init() -> None:
+    """Check if engine is initialized, exit if not.
+
+    Raises:
+        typer.Exit: If not initialized
+    """
     config = load_config()
     if not is_initialized(config):
         typer.secho(
@@ -50,13 +61,22 @@ def save_cmd(
     graphify_out: Path | None = typer.Option(
         None, "--graphify-out", help="Override graphify-out directory"
     ),
+    graph_json: Path | None = typer.Option(
+        None, "--graph-json", help="Use existing graph.json instead of running graphify"
+    ),
 ) -> None:
     """Run graphify on source and persist the subgraph snapshot + episode."""
     _require_init()
     config = load_config()
     pipeline = SavePipeline(config)
     try:
-        result = pipeline.save(id, source, graphify_out)
+        result = pipeline.save(
+            id,
+            source,
+            graphify_out,
+            skip_graphify=graph_json is not None,
+            graph_json_path=graph_json,
+        )
     except (GraphifyRunError, FileNotFoundError, ValueError) as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1) from exc

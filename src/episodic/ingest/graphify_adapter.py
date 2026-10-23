@@ -1,3 +1,9 @@
+"""Graphify JSON adapter.
+
+Normalizes graphify's output (which may vary in field names/structure)
+into GraphNode and GraphEdge objects for diffing.
+"""
+
 from __future__ import annotations
 
 from typing import Any
@@ -6,6 +12,17 @@ from episodic.ingest.fingerprint import GraphEdge, GraphNode, compute_fingerprin
 
 
 def _node_props(raw: dict[str, Any]) -> dict[str, Any]:
+    """Extract properties from raw node, excluding reserved keys.
+
+    Reserved keys (id, source, target, key, type, label) are handled separately.
+    Copies back label, type, file/path as file, qualified_name as properties.
+
+    Args:
+        raw: Raw node dict from graphify
+
+    Returns:
+        Properties dict
+    """
     reserved = {"id", "source", "target", "key", "type", "label"}
     props = {k: v for k, v in raw.items() if k not in reserved and v is not None}
     if "label" in raw:
@@ -22,20 +39,34 @@ def _node_props(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def parse_graph_json(data: dict[str, Any]) -> tuple[list[GraphNode], list[GraphEdge]]:
+    """Parse graphify JSON into normalized GraphNode and GraphEdge lists.
+
+    Accepts nodes and links or edges. Resolves edges by local node IDs.
+    Skips edges with missing source/target nodes.
+
+    Args:
+        data: Graphify JSON dict
+
+    Returns:
+        Tuple of (nodes, edges)
+    """
     raw_nodes = data.get("nodes") or []
     raw_links = data.get("links") or data.get("edges") or []
 
     nodes: list[GraphNode] = []
     node_by_id: dict[str, GraphNode] = {}
 
+    # Parse nodes
     for raw in raw_nodes:
         local_id = str(raw.get("id"))
         props = _node_props(raw)
+        # Compute fingerprint using raw + props for extra context
         fingerprint = compute_fingerprint({**raw, **props})
         node = GraphNode(local_id=local_id, fingerprint=fingerprint, properties=props)
         nodes.append(node)
         node_by_id[local_id] = node
 
+    # Parse edges
     edges: list[GraphEdge] = []
     for idx, raw in enumerate(raw_links):
         source_id = str(raw.get("source"))
@@ -43,7 +74,8 @@ def parse_graph_json(data: dict[str, Any]) -> tuple[list[GraphNode], list[GraphE
         source = node_by_id.get(source_id)
         target = node_by_id.get(target_id)
         if source is None or target is None:
-            continue
+            continue  # Skip edges with missing nodes
+        # Determine edge type
         edge_type = str(raw.get("type") or raw.get("label") or raw.get("key") or "related")
         props = _node_props(raw)
         edge = GraphEdge(

@@ -1,3 +1,9 @@
+"""Save pipeline orchestrator.
+
+Coordinates the full flow: run graphify -> read graph.json -> store snapshot in blob store ->
+diff against previous snapshot -> create episode -> persist to SQLite.
+"""
+
 from __future__ import annotations
 
 import json
@@ -21,13 +27,16 @@ from episodic.models.subgraph import SubgraphRegistration
 
 
 class GraphifyRunError(RuntimeError):
+    """Raised when graphify fails to run or install."""
     pass
 
 
 @dataclass
 class SaveResult:
+    """Result of a save operation."""
+
     subgraph_id: str
-    status: str
+    status: str                # "saved" or "unchanged"
     snapshot_hash: str | None = None
     episode_id: str | None = None
     ops_total: int = 0
@@ -36,10 +45,27 @@ class SaveResult:
 
 
 def utc_now_iso() -> str:
+    """Get current UTC time in ISO format with Z suffix.
+
+    Returns:
+        Timestamp like "2026-10-23T20:39:44Z"
+    """
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def run_graphify(source: Path, binary: str) -> None:
+    """Run graphify on source to generate graph.json.
+
+    Tries "graphify extract <source>" first, falls back to "graphify <source>".
+
+    Args:
+        source: Source directory/file to analyze
+        binary: Name of graphify binary
+
+    Raises:
+        FileNotFoundError: If source doesn't exist
+        GraphifyRunError: If binary not found or graphify fails
+    """
     source = source.resolve()
     if not source.exists():
         raise FileNotFoundError(f"source not found: {source}")
@@ -49,9 +75,11 @@ def run_graphify(source: Path, binary: str) -> None:
             f"{binary!r} not found on PATH. Run `episodic init` to install graphify."
         )
 
+    # Try first form: graphify extract <source>
     cmd = [binary, "extract", str(source)]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
+        # Try fallback form: graphify <source>
         cmd_fallback = [binary, str(source)]
         result = subprocess.run(cmd_fallback, capture_output=True, text=True)
         if result.returncode != 0:
@@ -64,6 +92,16 @@ def run_graphify(source: Path, binary: str) -> None:
 
 
 def ensure_graphify_installed(config: EpisodicConfig) -> None:
+    """Ensure graphify binary is installed.
+
+    Checks if binary exists on PATH, installs via config.graphify.install_via if not.
+
+    Args:
+        config: Configuration
+
+    Raises:
+        GraphifyRunError: If binary not found and cannot install
+    """
     binary = config.graphify.binary
     if shutil.which(binary) is not None:
         return
@@ -86,6 +124,14 @@ def ensure_graphify_installed(config: EpisodicConfig) -> None:
 
 
 def read_graph_counts(content: bytes) -> tuple[int, int]:
+    """Read node and edge counts from graph JSON.
+
+    Args:
+        content: Raw JSON bytes
+
+    Returns:
+        Tuple of (node_count, edge_count)
+    """
     data = json.loads(content.decode("utf-8"))
     nodes = data.get("nodes") or []
     links = data.get("links") or data.get("edges") or []
@@ -93,7 +139,14 @@ def read_graph_counts(content: bytes) -> tuple[int, int]:
 
 
 class SavePipeline:
+    """Orchestrates saving graph snapshots as episodes."""
+
     def __init__(self, config: EpisodicConfig) -> None:
+        """Initialize save pipeline.
+
+        Args:
+            config: Configuration
+        """
         self.config = config
         self.store = SQLiteEpisodeStore(config.episode_db_path)
         self.blobs = LocalBlobStore(config.snapshots_dir)
@@ -107,21 +160,51 @@ class SavePipeline:
         skip_graphify: bool = False,
         graph_json_path: Path | None = None,
     ) -> SaveResult:
+        """Save a graph snapshot as an episode.
+
+        Flow:
+        1. Validate subgraph_id and resolve paths
+        2. Run graphify (unless skipped) to generate graph.json
+        3. Read graph.json, store in blob store (dedup by hash)
+        4. If snapshot unchanged, touch subgraph and return unchanged
+        5. Parse graph, compute operations (bootstrap or diff)
+        6. Create episode, update registration, persist
+
+        Args:
+            subgraph_id: Subgraph identifier (slug)
+            source: Source path for graphify
+            graphify_out: Override for graphify output directory
+            skip_graphify: Skip running graphify
+            graph_json_path: Path to existing graph.json (used if skip_graphify)
+
+        Returns:
+            SaveResult
+
+        Raises:
+            ValueError: If subgraph_id invalid
+            FileNotFoundError: If source or graph.json not found
+            GraphifyRunError: If graphify fails
+            RuntimeError: If missing episodes for existing subgraph
+        """
+        # 1. Validate and resolve paths
         subgraph_id = validate_subgraph_id(subgraph_id)
         source = source.resolve()
         out_dir = (graphify_out or source / "graphify-out").resolve()
         graph_path = graph_json_path or (out_dir / "graph.json")
 
+        # 2. Run graphify if not skipped
         if not skip_graphify:
             run_graphify(source, self.config.graphify.binary)
         if not graph_path.is_file():
             raise FileNotFoundError(f"graph.json not found: {graph_path}")
 
+        # 3. Read and store snapshot
         content = graph_path.read_bytes()
         snapshot_hash = self.blobs.put(content)
         node_count, edge_count = read_graph_counts(content)
         now = utc_now_iso()
 
+        # 4. Check if unchanged
         existing = self.store.get_subgraph(subgraph_id)
         if existing and existing.latest_snapshot_hash == snapshot_hash:
             self.store.touch_subgraph(subgraph_id, now)
@@ -133,13 +216,17 @@ class SavePipeline:
                 edge_count=edge_count,
             )
 
+        # 5. Parse new graph
         new_nodes, new_edges = parse_graph_json(json.loads(content.decode("utf-8")))
 
+        # 6. Compute operations (bootstrap or diff)
         if existing is None:
+            # First time seeing this subgraph - bootstrap
             operations, _ = bootstrap_operations(new_nodes, new_edges, subgraph_id)
             sequence = 1
             parent = None
         else:
+            # Incremental diff
             old_content = self.blobs.get(existing.latest_snapshot_hash)
             old_nodes, old_edges = parse_graph_json(
                 json.loads(old_content.decode("utf-8"))
@@ -147,7 +234,9 @@ class SavePipeline:
             prior = self.store.latest_episode(subgraph_id)
             if prior is None:
                 raise RuntimeError(f"missing episodes for subgraph {subgraph_id}")
+            # Build fingerprint map from prior episode
             fp_map = build_fingerprint_map_from_bootstrap(prior.operations)
+            # Compute diff
             operations, _ = diff_snapshots(
                 old_nodes,
                 old_edges,
@@ -159,6 +248,7 @@ class SavePipeline:
             sequence = self.store.next_sequence(subgraph_id)
             parent = prior.episode_id
 
+        # 7. Create episode and persist
         episode_id = f"{subgraph_id}__ep_{sequence:06d}"
         episode = Episode(
             episode_id=episode_id,
@@ -170,6 +260,7 @@ class SavePipeline:
             parent_episode_id=parent,
         )
 
+        # Update registration
         registration = SubgraphRegistration(
             subgraph_id=subgraph_id,
             source_path=str(source),

@@ -1,3 +1,10 @@
+"""Fingerprinting for stable node and edge identity.
+
+Graphify may assign arbitrary local IDs that change between runs.
+Fingerprints provide stable identity based on semantic properties
+(type, file, qualified name, label) so we can diff across snapshots.
+"""
+
 from __future__ import annotations
 
 import re
@@ -7,6 +14,20 @@ from typing import Any
 
 
 def normalize_label(label: str) -> str:
+    """Normalize a label for fingerprinting.
+
+    - NFKC normalization
+    - Lowercase
+    - Remove punctuation (replace with spaces)
+    - Collapse whitespace
+    - Strip
+
+    Args:
+        label: Raw label to normalize
+
+    Returns:
+        Normalized label
+    """
     text = unicodedata.normalize("NFKC", label or "")
     text = text.lower()
     text = re.sub(r"[^\w\s-]", " ", text)
@@ -15,6 +36,20 @@ def normalize_label(label: str) -> str:
 
 
 def compute_fingerprint(node: dict[str, Any]) -> str:
+    """Compute stable fingerprint for a node.
+
+    Strategy depends on node type:
+    - function/method/class with qualified_name: type:file:qualified_name
+    - module/file: type:file:name/label
+    - concept/doc/section: type:file:normalized_heading
+    - fallback: type:file:normalized_label
+
+    Args:
+        node: Node dict from graphify (may have type, file/path, qualified_name, name, label)
+
+    Returns:
+        Fingerprint string
+    """
     node_type = str(node.get("type") or "unknown")
     file_path = str(node.get("file") or node.get("path") or "unknown")
     qualified = node.get("qualified_name") or node.get("name") or node.get("label")
@@ -32,28 +67,43 @@ def compute_fingerprint(node: dict[str, Any]) -> str:
 
 
 def edge_key(source_fp: str, target_fp: str, edge_type: str) -> str:
+    """Compute stable key for an edge.
+
+    Args:
+        source_fp: Fingerprint of source node
+        target_fp: Fingerprint of target node
+        edge_type: Type of edge/relationship
+
+    Returns:
+        Edge key in format "src_fp|edge_type|tgt_fp"
+    """
     return f"{source_fp}|{edge_type}|{target_fp}"
 
 
 @dataclass
 class GraphNode:
-    local_id: str
-    fingerprint: str
-    properties: dict[str, Any] = field(default_factory=dict)
+    """Normalized graph node for diffing."""
+
+    local_id: str                      # ID from graphify in this snapshot
+    fingerprint: str                   # Stable fingerprint
+    properties: dict[str, Any] = field(default_factory=dict)  # Node properties
 
 
 @dataclass
 class GraphEdge:
-    local_id: str
-    source_local_id: str
-    target_local_id: str
-    source_fingerprint: str
-    target_fingerprint: str
-    edge_type: str
-    properties: dict[str, Any] = field(default_factory=dict)
-    edge_key: str = ""
+    """Normalized graph edge for diffing."""
+
+    local_id: str                      # ID from graphify in this snapshot
+    source_local_id: str               # Local ID of source node
+    target_local_id: str               # Local ID of target node
+    source_fingerprint: str            # Fingerprint of source node
+    target_fingerprint: str            # Fingerprint of target node
+    edge_type: str                     # Type of relationship
+    properties: dict[str, Any] = field(default_factory=dict)  # Edge properties
+    edge_key: str = ""                 # Computed from fingerprints and edge_type
 
     def __post_init__(self) -> None:
+        """Compute edge_key if not provided."""
         if not self.edge_key:
             self.edge_key = edge_key(
                 self.source_fingerprint, self.target_fingerprint, self.edge_type

@@ -1,3 +1,9 @@
+"""SQLite episode store.
+
+Persistent storage for subgraph registrations and episodes using SQLite.
+Handles schema creation, serialization/deserialization of operations and stats.
+"""
+
 from __future__ import annotations
 
 import json
@@ -10,10 +16,13 @@ from episodic.models.subgraph import SubgraphRegistration, SubgraphStatus
 
 
 class InitNotCompleteError(RuntimeError):
+    """Raised when initialization is not complete."""
     pass
 
 
 class SQLiteEpisodeStore:
+    """SQLite-backed store for episodes and subgraph registrations."""
+
     SCHEMA = """
     CREATE TABLE IF NOT EXISTS subgraphs (
         subgraph_id TEXT PRIMARY KEY,
@@ -43,21 +52,39 @@ class SQLiteEpisodeStore:
     """
 
     def __init__(self, db_path: Path) -> None:
+        """Initialize store and create schema if needed.
+
+        Args:
+            db_path: Path to SQLite database file
+        """
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
 
     def _connect(self) -> sqlite3.Connection:
+        """Create database connection with row factory and foreign keys enabled.
+
+        Returns:
+            SQLite connection
+        """
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
         return conn
 
     def _init_schema(self) -> None:
+        """Initialize database schema."""
         with self._connect() as conn:
             conn.executescript(self.SCHEMA)
 
     def upsert_subgraph(self, reg: SubgraphRegistration) -> None:
+        """Insert or update a subgraph registration.
+
+        On conflict, updates source_path, graphify_out_path, latest_snapshot_hash, last_seen_at.
+
+        Args:
+            reg: Subgraph registration to store
+        """
         with self._connect() as conn:
             conn.execute(
                 """
@@ -82,6 +109,15 @@ class SQLiteEpisodeStore:
             )
 
     def touch_subgraph(self, subgraph_id: str, last_seen_at: str) -> None:
+        """Update last_seen_at for a subgraph.
+
+        Args:
+            subgraph_id: Subgraph to update
+            last_seen_at: New timestamp
+
+        Raises:
+            KeyError: If subgraph doesn't exist
+        """
         with self._connect() as conn:
             cur = conn.execute(
                 "UPDATE subgraphs SET last_seen_at = ? WHERE subgraph_id = ?",
@@ -91,6 +127,14 @@ class SQLiteEpisodeStore:
                 raise KeyError(f"unknown subgraph: {subgraph_id}")
 
     def get_subgraph(self, subgraph_id: str) -> SubgraphRegistration | None:
+        """Get subgraph registration by ID.
+
+        Args:
+            subgraph_id: Subgraph ID
+
+        Returns:
+            Registration or None if not found
+        """
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM subgraphs WHERE subgraph_id = ?",
@@ -101,6 +145,11 @@ class SQLiteEpisodeStore:
         return SubgraphRegistration(**dict(row))
 
     def list_subgraphs(self) -> list[SubgraphRegistration]:
+        """List all subgraph registrations.
+
+        Returns:
+            List of registrations ordered by subgraph_id
+        """
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT * FROM subgraphs ORDER BY subgraph_id"
@@ -108,6 +157,13 @@ class SQLiteEpisodeStore:
         return [SubgraphRegistration(**dict(row)) for row in rows]
 
     def append_episode(self, episode: Episode) -> None:
+        """Append an episode to the store.
+
+        Serializes operations as JSON array and stats as JSON.
+
+        Args:
+            episode: Episode to store
+        """
         ops_json = json.dumps(
             [op.model_dump(mode="json") for op in episode.operations]
         )
@@ -135,6 +191,14 @@ class SQLiteEpisodeStore:
             )
 
     def get_episode(self, episode_id: str) -> Episode | None:
+        """Get episode by ID.
+
+        Args:
+            episode_id: Episode ID
+
+        Returns:
+            Episode or None if not found
+        """
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM episodes WHERE episode_id = ?",
@@ -143,6 +207,14 @@ class SQLiteEpisodeStore:
         return self._row_to_episode(row) if row else None
 
     def latest_episode(self, subgraph_id: str) -> Episode | None:
+        """Get latest episode for a subgraph.
+
+        Args:
+            subgraph_id: Subgraph ID
+
+        Returns:
+            Latest episode or None if no episodes
+        """
         with self._connect() as conn:
             row = conn.execute(
                 """
@@ -156,6 +228,14 @@ class SQLiteEpisodeStore:
         return self._row_to_episode(row) if row else None
 
     def next_sequence(self, subgraph_id: str) -> int:
+        """Get next sequence number for a subgraph.
+
+        Args:
+            subgraph_id: Subgraph ID
+
+        Returns:
+            Next sequence number (1 if no episodes)
+        """
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT MAX(sequence) FROM episodes WHERE subgraph_id = ?",
@@ -165,6 +245,14 @@ class SQLiteEpisodeStore:
         return current + 1
 
     def episode_count(self, subgraph_id: str) -> int:
+        """Count episodes for a subgraph.
+
+        Args:
+            subgraph_id: Subgraph ID
+
+        Returns:
+            Number of episodes
+        """
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT COUNT(*) FROM episodes WHERE subgraph_id = ?",
@@ -173,6 +261,11 @@ class SQLiteEpisodeStore:
         return int(row[0]) if row else 0
 
     def list_status(self) -> list[SubgraphStatus]:
+        """List status for all subgraphs.
+
+        Returns:
+            List of SubgraphStatus
+        """
         statuses: list[SubgraphStatus] = []
         for reg in self.list_subgraphs():
             statuses.append(
@@ -187,6 +280,14 @@ class SQLiteEpisodeStore:
         return statuses
 
     def episodes_for_subgraph(self, subgraph_id: str) -> Iterator[Episode]:
+        """Iterate episodes for a subgraph in order.
+
+        Args:
+            subgraph_id: Subgraph ID
+
+        Yields:
+            Episodes in ascending sequence order
+        """
         with self._connect() as conn:
             rows = conn.execute(
                 """
@@ -203,6 +304,16 @@ class SQLiteEpisodeStore:
 
     @staticmethod
     def _row_to_episode(row: sqlite3.Row | None) -> Episode | None:
+        """Convert database row to Episode model.
+
+        Deserializes operations_json and stats_json.
+
+        Args:
+            row: Database row
+
+        Returns:
+            Episode or None
+        """
         if row is None:
             return None
         data = dict(row)
