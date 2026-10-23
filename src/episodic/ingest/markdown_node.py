@@ -3,15 +3,10 @@
 from __future__ import annotations
 
 import json
-import tempfile
 from pathlib import Path
 from typing import Any
 
 import yaml
-
-from episodic.config import validate_subgraph_id
-from episodic.ingest.save_pipeline import SavePipeline, SaveResult
-
 
 def parse_markdown_node(path: Path) -> dict[str, Any]:
     """Parse a Markdown file with YAML frontmatter into a graph node."""
@@ -53,38 +48,23 @@ def parse_markdown_node(path: Path) -> dict[str, Any]:
 
 
 def ingest_markdown_node(
-    pipeline: SavePipeline,
-    subgraph_id: str,
     markdown_path: Path,
-    graph_json_path: Path | None = None,
-) -> SaveResult:
-    """Ingest a Markdown node as a new or appended graph snapshot."""
-    subgraph_id = validate_subgraph_id(subgraph_id)
+    graph_json_path: Path,
+) -> dict[str, Any]:
+    """Append one Markdown node to an existing graph.json."""
     node = parse_markdown_node(markdown_path.resolve())
-
-    if graph_json_path is None:
-        graph = {"nodes": [node], "links": []}
-    else:
-        graph_path = graph_json_path.resolve()
-        if not graph_path.is_file():
-            raise FileNotFoundError(f"graph.json not found: {graph_path}")
-        graph = json.loads(graph_path.read_text(encoding="utf-8"))
-        if not isinstance(graph, dict) or not isinstance(graph.get("nodes"), list):
-            raise ValueError(f"invalid graph.json: {graph_path}")
-        graph.setdefault("links", graph.get("edges") or [])
-        graph["nodes"].append(node)
-
-    with tempfile.NamedTemporaryFile(
-        mode="w", encoding="utf-8", suffix=".json", delete=False
-    ) as handle:
-        json.dump(graph, handle, ensure_ascii=False, sort_keys=True)
-        temp_path = Path(handle.name)
-    try:
-        return pipeline.save(
-            subgraph_id,
-            source=markdown_path.resolve().parent,
-            skip_graphify=True,
-            graph_json_path=temp_path,
-        )
-    finally:
-        temp_path.unlink(missing_ok=True)
+    graph_path = graph_json_path.resolve()
+    if not graph_path.is_file():
+        raise FileNotFoundError(f"graph.json not found: {graph_path}")
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    if not isinstance(graph, dict) or not isinstance(graph.get("nodes"), list):
+        raise ValueError(f"invalid graph.json: {graph_path}")
+    if any(existing.get("id") == node["id"] for existing in graph["nodes"]):
+        raise ValueError(f"node already exists: {node['id']}")
+    graph.setdefault("links", graph.get("edges") or [])
+    graph["nodes"].append(node)
+    graph_path.write_text(
+        json.dumps(graph, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return node
