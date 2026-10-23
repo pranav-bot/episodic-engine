@@ -12,7 +12,7 @@ from pathlib import Path
 import typer
 import yaml
 
-from episodic.config import load_config
+from episodic.config import load_config, validate_subgraph_id
 from episodic.graph import GRAPH_STRUCTURE, create_graph
 from episodic.init_service import is_initialized, run_init
 from episodic.ingest.markdown_node import ingest_markdown_node
@@ -29,34 +29,29 @@ app = typer.Typer(
 def create_graph_cmd(
     directory: Path = typer.Option(..., "--directory", help="Directory for graph.json"),
     id: str | None = typer.Option(
-        None, "--id", help="Subgraph slug to register the empty graph"
-    ),
-    register: bool = typer.Option(
-        False, "--register", help="Persist the empty graph in Episodic storage"
+        None, "--id", help="Subgraph slug (defaults to the directory name)"
     ),
 ) -> None:
-    """Create an empty graph and explain how to add nodes."""
-    if register and not id:
-        typer.secho("--id is required with --register", fg=typer.colors.RED, err=True)
-        raise typer.Exit(code=1)
+    """Create and register an empty graph, then explain how to add nodes."""
+    _require_init()
+    graph_dir = directory.resolve()
+    graph_id = id or graph_dir.name
 
     try:
-        graph_path = create_graph(directory)
-        if register:
-            _require_init()
-            result = SavePipeline(load_config()).save(
-                id,
-                source=directory,
-                skip_graphify=True,
-                graph_json_path=graph_path,
-            )
+        validate_subgraph_id(graph_id)
+        graph_path = create_graph(graph_dir)
+        result = SavePipeline(load_config()).save(
+            graph_id,
+            source=graph_dir,
+            skip_graphify=True,
+            graph_json_path=graph_path,
+        )
     except (FileExistsError, FileNotFoundError, ValueError, OSError) as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1) from exc
 
     typer.echo(f"created: {graph_path}")
-    if register:
-        typer.echo(f"registered: subgraph={result.subgraph_id} episode={result.episode_id}")
+    typer.echo(f"registered: subgraph={result.subgraph_id} episode={result.episode_id}")
     typer.echo(GRAPH_STRUCTURE)
 
 
@@ -162,9 +157,29 @@ def ingest_node_cmd(
     )
 
 
-@app.command("status")
-def status_cmd() -> None:
-    """List registered subgraphs and episode counts."""
+@app.command("delete-subgraph")
+def delete_subgraph_cmd(
+    id: str = typer.Option(..., "--id", help="Subgraph slug to delete"),
+    yes: bool = typer.Option(
+        False, "--yes", help="Confirm deletion without an interactive prompt"
+    ),
+) -> None:
+    """Delete a registered subgraph and its episode history."""
+    _require_init()
+    if not yes:
+        typer.confirm(
+            f"Delete subgraph {id!r}, its episodes, and registry entry?",
+            abort=True,
+        )
+
+    store = SavePipeline(load_config()).store
+    if not store.delete_subgraph(id):
+        typer.secho(f"unknown subgraph: {id}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"deleted: subgraph={id}")
+
+
+def _show_graphs() -> None:
     _require_init()
     config = load_config()
     store = SavePipeline(config).store
@@ -184,6 +199,18 @@ def status_cmd() -> None:
             f"{row.subgraph_id:<20} {short_hash:<14} {row.episode_count:>8}  "
             f"{row.last_seen_at or '-':<22} {row.source_path}"
         )
+
+
+@app.command("graphs")
+def graphs_cmd() -> None:
+    """List all graphs registered with Episodic Engine."""
+    _show_graphs()
+
+
+@app.command("status")
+def status_cmd() -> None:
+    """List registered subgraphs and episode counts."""
+    _show_graphs()
 
 
 if __name__ == "__main__":

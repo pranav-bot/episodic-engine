@@ -144,6 +144,23 @@ class SQLiteEpisodeStore:
             return None
         return SubgraphRegistration(**dict(row))
 
+    def delete_subgraph(self, subgraph_id: str) -> bool:
+        """Delete a subgraph registration and all of its episodes.
+
+        Returns:
+            True if the subgraph existed, otherwise False.
+        """
+        with self._connect() as conn:
+            exists = conn.execute(
+                "SELECT 1 FROM subgraphs WHERE subgraph_id = ?",
+                (subgraph_id,),
+            ).fetchone()
+            if exists is None:
+                return False
+            conn.execute("DELETE FROM episodes WHERE subgraph_id = ?", (subgraph_id,))
+            conn.execute("DELETE FROM subgraphs WHERE subgraph_id = ?", (subgraph_id,))
+        return True
+
     def list_subgraphs(self) -> list[SubgraphRegistration]:
         """List all subgraph registrations.
 
