@@ -1,12 +1,9 @@
-"""Save pipeline orchestrator.
-
-Coordinates the full flow: run graphify -> read graph.json -> store snapshot in blob store ->
-diff against previous snapshot -> create episode -> persist to SQLite.
-"""
+"""Save pipeline orchestrator."""
 
 from __future__ import annotations
 
 import json
+import hashlib
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -14,13 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from episodic.config import EpisodicConfig, validate_subgraph_id
-from episodic.drivers.local_blob_store import LocalBlobStore
 from episodic.drivers.sqlite_episode_store import SQLiteEpisodeStore
-from episodic.ingest.differ import (
-    bootstrap_operations,
-    build_fingerprint_map_from_bootstrap,
-    diff_snapshots,
-)
+from episodic.ingest.differ import bootstrap_operations
 from episodic.ingest.graphify_adapter import parse_graph_json
 from episodic.models.episode import Episode
 from episodic.models.subgraph import SubgraphRegistration
@@ -148,8 +140,7 @@ class SavePipeline:
             config: Configuration
         """
         self.config = config
-        self.store = SQLiteEpisodeStore(config.episode_db_path)
-        self.blobs = LocalBlobStore(config.snapshots_dir)
+        self.store = SQLiteEpisodeStore(config.episode_db_path, create=False)
 
     def save(
         self,
@@ -165,7 +156,7 @@ class SavePipeline:
         Flow:
         1. Validate subgraph_id and resolve paths
         2. Run graphify (unless skipped) to generate graph.json
-        3. Read graph.json, store in blob store (dedup by hash)
+        3. Read graph.json and compute its hash
         4. If snapshot unchanged, touch subgraph and return unchanged
         5. Parse graph, compute operations (bootstrap or diff)
         6. Create episode, update registration, persist
@@ -200,7 +191,7 @@ class SavePipeline:
 
         # 3. Read and store snapshot
         content = graph_path.read_bytes()
-        snapshot_hash = self.blobs.put(content)
+        snapshot_hash = f"sha256:{hashlib.sha256(content).hexdigest()}"
         node_count, edge_count = read_graph_counts(content)
         now = utc_now_iso()
 
@@ -226,27 +217,9 @@ class SavePipeline:
             sequence = 1
             parent = None
         else:
-            # Incremental diff
-            old_content = self.blobs.get(existing.latest_snapshot_hash)
-            old_nodes, old_edges = parse_graph_json(
-                json.loads(old_content.decode("utf-8"))
+            raise RuntimeError(
+                "changed graph saves are unavailable until snapshot storage is added"
             )
-            prior = self.store.latest_episode(subgraph_id)
-            if prior is None:
-                raise RuntimeError(f"missing episodes for subgraph {subgraph_id}")
-            # Build fingerprint map from prior episode
-            fp_map = build_fingerprint_map_from_bootstrap(prior.operations)
-            # Compute diff
-            operations, _ = diff_snapshots(
-                old_nodes,
-                old_edges,
-                new_nodes,
-                new_edges,
-                subgraph_id,
-                fp_map,
-            )
-            sequence = self.store.next_sequence(subgraph_id)
-            parent = prior.episode_id
 
         # 7. Create episode and persist
         episode_id = f"{subgraph_id}__ep_{sequence:06d}"

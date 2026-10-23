@@ -29,7 +29,7 @@ def test_create_graph_does_not_overwrite_existing_graph(tmp_path):
     assert json.loads(path.read_text(encoding="utf-8"))["nodes"] == []
 
 
-def test_create_graph_command_registers_by_default(monkeypatch, tmp_path):
+def test_create_graph_command_creates_file_without_registration(monkeypatch, tmp_path):
     data_dir = tmp_path / "episodic"
     config_path = data_dir / "config.yaml"
     data_dir.mkdir()
@@ -38,15 +38,12 @@ def test_create_graph_command_registers_by_default(monkeypatch, tmp_path):
 storage:
   episode_log:
     path: {data_dir / "episodes.db"}
-  snapshots:
-    path: {data_dir / "snapshots"}
 init:
   marker_file: {data_dir / ".initialized"}
 """.strip()
         + "\n",
         encoding="utf-8",
     )
-    SQLiteEpisodeStore(data_dir / "episodes.db")
     (data_dir / ".initialized").write_text("initialized\n", encoding="utf-8")
     monkeypatch.setenv("EPISODIC_CONFIG", str(config_path))
 
@@ -55,8 +52,8 @@ init:
     )
 
     assert result.exit_code == 0
-    assert "registered: subgraph=notes" in result.stdout
-    assert "notes" in CliRunner().invoke(app, ["graphs"]).stdout
+    assert "not registered" in result.stdout
+    assert (tmp_path / "notes" / "graph.json").is_file()
 
 
 def test_delete_subgraph_removes_registration_and_episodes(
@@ -69,14 +66,13 @@ def test_delete_subgraph_removes_registration_and_episodes(
 storage:
   episode_log:
     path: {temp_config.episode_db_path}
-  snapshots:
-    path: {temp_config.snapshots_dir}
 init:
   marker_file: {temp_config.marker_path}
 """.strip()
         + "\n",
         encoding="utf-8",
     )
+    SQLiteEpisodeStore(temp_config.episode_db_path)
     graph = tmp_path / "graph.json"
     graph.write_text('{"nodes": [], "links": []}', encoding="utf-8")
     pipeline = SavePipeline(temp_config)
@@ -93,3 +89,32 @@ init:
     assert "deleted: subgraph=notes" in result.stdout
     assert pipeline.store.get_subgraph("notes") is None
     assert pipeline.store.episode_count("notes") == 0
+
+
+def test_reset_deletes_engine_state_with_confirmation(monkeypatch, tmp_path):
+    data_dir = tmp_path / "episodic"
+    config_path = data_dir / "config.yaml"
+    data_dir.mkdir()
+    config_path.write_text(
+        f"""
+storage:
+  episode_log:
+    path: {data_dir / "episodes.db"}
+init:
+  marker_file: {data_dir / ".initialized"}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    (data_dir / "episodes.db").write_bytes(b"database")
+    (data_dir / ".initialized").write_text("initialized\n", encoding="utf-8")
+    monkeypatch.setenv("EPISODIC_CONFIG", str(config_path))
+
+    result = CliRunner().invoke(app, ["reset"], input="n\n")
+    assert result.exit_code != 0
+    assert data_dir.exists()
+    assert "WARNING" in result.stdout
+
+    result = CliRunner().invoke(app, ["reset"], input="y\n")
+    assert result.exit_code == 0
+    assert not data_dir.exists()

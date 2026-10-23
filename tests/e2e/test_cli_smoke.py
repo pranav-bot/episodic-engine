@@ -12,8 +12,6 @@ def test_save_without_init_fails(monkeypatch, tmp_path):
 storage:
   episode_log:
     path: {data_dir / "episodes.db"}
-  snapshots:
-    path: {data_dir / "snapshots"}
 init:
   marker_file: {data_dir / ".initialized"}
 """.strip()

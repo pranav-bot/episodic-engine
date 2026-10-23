@@ -22,18 +22,10 @@ class EpisodeLogConfig(BaseModel):
     path: str = "~/.episodic-engine/episodes.db"
 
 
-class SnapshotsConfig(BaseModel):
-    """Configuration for snapshot storage (blob store)."""
-
-    driver: str = "local"
-    path: str = "~/.episodic-engine/snapshots/"
-
-
 class StorageConfig(BaseModel):
     """Storage configuration for episodes and snapshots."""
 
     episode_log: EpisodeLogConfig = Field(default_factory=EpisodeLogConfig)
-    snapshots: SnapshotsConfig = Field(default_factory=SnapshotsConfig)
 
 
 class GraphifyConfig(BaseModel):
@@ -67,9 +59,6 @@ class EpisodicConfig(BaseModel):
         data["storage"]["episode_log"]["path"] = str(
             Path(data["storage"]["episode_log"]["path"]).expanduser()
         )
-        data["storage"]["snapshots"]["path"] = str(
-            Path(data["storage"]["snapshots"]["path"]).expanduser()
-        )
         data["init"]["marker_file"] = str(Path(data["init"]["marker_file"]).expanduser())
         return EpisodicConfig.model_validate(data)
 
@@ -82,11 +71,6 @@ class EpisodicConfig(BaseModel):
     def episode_db_path(self) -> Path:
         """Get path to episode SQLite database."""
         return Path(self.storage.episode_log.path).expanduser()
-
-    @property
-    def snapshots_dir(self) -> Path:
-        """Get path to snapshots blob store directory."""
-        return Path(self.storage.snapshots.path).expanduser()
 
     @property
     def marker_path(self) -> Path:

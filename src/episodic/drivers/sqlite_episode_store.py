@@ -51,13 +51,15 @@ class SQLiteEpisodeStore:
         ON episodes(subgraph_id, sequence);
     """
 
-    def __init__(self, db_path: Path) -> None:
+    def __init__(self, db_path: Path, *, create: bool = True) -> None:
         """Initialize store and create schema if needed.
 
         Args:
             db_path: Path to SQLite database file
         """
         self.db_path = db_path
+        if not create and not self.db_path.is_file():
+            raise FileNotFoundError(f"episode database not found: {self.db_path}")
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
 

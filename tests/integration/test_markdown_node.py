@@ -1,5 +1,6 @@
 from episodic.ingest.markdown_node import ingest_markdown_node, parse_markdown_node
 from episodic.ingest.save_pipeline import SavePipeline
+from episodic.drivers.sqlite_episode_store import SQLiteEpisodeStore
 from episodic.init_service import run_init
 
 
@@ -29,6 +30,7 @@ JWT validation happens here.
 
 def test_ingest_markdown_node_creates_one_node_snapshot(temp_config, stores, tmp_path):
     run_init(temp_config)
+    SQLiteEpisodeStore(temp_config.episode_db_path)
     markdown = tmp_path / "note.md"
     markdown.write_text(
         "---\nid: auth-note\ntype: concept\ntitle: Authentication\n---\nDetails\n",
@@ -48,6 +50,7 @@ def test_ingest_markdown_node_appends_to_existing_graph(
     temp_config, stores, tmp_path
 ):
     run_init(temp_config)
+    SQLiteEpisodeStore(temp_config.episode_db_path)
     markdown = tmp_path / "note.md"
     markdown.write_text(
         "---\nid: auth-note\ntype: concept\ntitle: Authentication\n---\nDetails\n",

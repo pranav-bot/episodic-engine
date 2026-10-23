@@ -4,9 +4,6 @@ storage:
   episode_log:
     driver: sqlite
     path: ~/.episodic-engine/episodes.db
-  snapshots:
-    driver: local
-    path: ~/.episodic-engine/snapshots/
 
 graphify:
   binary: graphify

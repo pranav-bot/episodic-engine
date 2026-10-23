@@ -7,12 +7,13 @@ and checking status of tracked subgraphs.
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import typer
 import yaml
 
-from episodic.config import load_config, validate_subgraph_id
+from episodic.config import load_config
 from episodic.graph import GRAPH_STRUCTURE, create_graph
 from episodic.init_service import is_initialized, run_init
 from episodic.ingest.markdown_node import ingest_markdown_node
@@ -28,30 +29,19 @@ app = typer.Typer(
 @app.command("create-graph")
 def create_graph_cmd(
     directory: Path = typer.Option(..., "--directory", help="Directory for graph.json"),
-    id: str | None = typer.Option(
-        None, "--id", help="Subgraph slug (defaults to the directory name)"
-    ),
 ) -> None:
-    """Create and register an empty graph, then explain how to add nodes."""
+    """Create an empty graph file and explain how to add nodes later."""
     _require_init()
     graph_dir = directory.resolve()
-    graph_id = id or graph_dir.name
 
     try:
-        validate_subgraph_id(graph_id)
         graph_path = create_graph(graph_dir)
-        result = SavePipeline(load_config()).save(
-            graph_id,
-            source=graph_dir,
-            skip_graphify=True,
-            graph_json_path=graph_path,
-        )
     except (FileExistsError, FileNotFoundError, ValueError, OSError) as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1) from exc
 
     typer.echo(f"created: {graph_path}")
-    typer.echo(f"registered: subgraph={result.subgraph_id} episode={result.episode_id}")
+    typer.echo("not registered: storage-backed graph saving is disabled")
     typer.echo(GRAPH_STRUCTURE)
 
 
@@ -83,8 +73,7 @@ def init_cmd() -> None:
 
     typer.echo("Episodic Engine initialized.")
     typer.echo(f"  data dir:  {config.data_dir}")
-    typer.echo(f"  episodes:  {config.episode_db_path}")
-    typer.echo(f"  snapshots: {config.snapshots_dir}")
+    typer.echo(f"  config:    {config.data_dir / 'config.yaml'}")
     typer.echo(f"  marker:    {marker}")
 
 
@@ -172,16 +161,43 @@ def delete_subgraph_cmd(
             abort=True,
         )
 
-    store = SavePipeline(load_config()).store
+    config = load_config()
+    if not config.episode_db_path.is_file():
+        typer.secho(f"unknown subgraph: {id}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1)
+    store = SavePipeline(config).store
     if not store.delete_subgraph(id):
         typer.secho(f"unknown subgraph: {id}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1)
     typer.echo(f"deleted: subgraph={id}")
 
 
+@app.command("reset")
+def reset_cmd(
+    yes: bool = typer.Option(
+        False, "--yes", help="Confirm deletion without an interactive prompt"
+    ),
+) -> None:
+    """Delete all Episodic-managed graphs, storage, database, and init state."""
+    config = load_config()
+    data_dir = config.data_dir.resolve()
+    typer.echo(
+        f"WARNING: this will permanently delete all Episodic graphs, snapshots, "
+        f"the SQLite database, config, and initialization state at {data_dir}."
+    )
+    if not yes:
+        typer.confirm("Continue and start afresh?", abort=True)
+    if data_dir.exists():
+        shutil.rmtree(data_dir)
+    typer.echo(f"reset: deleted {data_dir}")
+
+
 def _show_graphs() -> None:
     _require_init()
     config = load_config()
+    if not config.episode_db_path.is_file():
+        typer.echo("No graphs registered.")
+        return
     store = SavePipeline(config).store
     rows = store.list_status()
     if not rows:

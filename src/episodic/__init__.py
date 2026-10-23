@@ -3,7 +3,7 @@
 This package provides an episodic memory layer for graphify knowledge graphs.
 It treats each regeneration of a graph as a snapshot, diffs against the previous
 snapshot to produce a list of operations, and stores them as versioned episodes
-in a local SQLite store with full snapshots content-addressed in a blob store.
+in a local SQLite store.
 
 Think of it as "Git for a knowledge graph":
 - Full snapshots = committed trees at points in time
@@ -13,4 +13,3 @@ Think of it as "Git for a knowledge graph":
 """
 
 __version__ = "0.1.0"
-

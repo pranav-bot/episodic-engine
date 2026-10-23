@@ -36,7 +36,7 @@ class Episode(BaseModel):
     sequence: int                      # Sequence number per subgraph (1, 2, 3...)
     recorded_at: str                   # UTC timestamp in ISO format with Z suffix
     subgraph_id: str                   # ID of the tracked subgraph
-    snapshot_hash: str                 # SHA256 hash of full snapshot blob (sha256:...)
+    snapshot_hash: str                 # SHA256 hash of source graph JSON
     trigger_type: str = "graphify_regen"  # What triggered this episode
     operations: list[Operation] = Field(default_factory=list)  # List of changes
     stats: EpisodeStats = Field(default_factory=EpisodeStats)  # Auto-computed stats
