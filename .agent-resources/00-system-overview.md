@@ -7,14 +7,26 @@ Graphify produces **isolated, static** knowledge graphs — one `graph.json` per
 - Sources don't know about each other ("User Auth" in docs ≠ `auth.py` in code unless manually linked)
 - Regeneration **overwrites** prior state — no episodic history
 - LLM queries can't distinguish "current auth code" from "auth spec from last month"
+- Agent **harnesses** re-send whole corpora each turn — context cost amplifies from one developer to many teams and tools
 
-**Episodic Engine** is the synthesis and memory layer that:
+**Episodic Engine** is the synthesis, memory, and (on the roadmap) **context compilation** layer that:
 
 1. Registers multiple graphify outputs as **subgraphs**
 2. Resolves duplicate entities into a unified **Supergraph**
 3. Appends changes as **episodes** (never destructive overwrite of history)
 4. Routes natural-language queries to the right scope (local subgraph vs global Supergraph)
 5. Supports **time-travel** queries ("what did we believe last Tuesday?")
+6. Exposes **bounded, evidence-first context** to harnesses via a read-only MCP surface (see [Grand Plan](./episodic-grand-plan.md))
+
+---
+
+## North Star: Context Compiler for Harnesses
+
+Full product direction lives in [episodic-grand-plan.md](./episodic-grand-plan.md). In one sentence:
+
+> Episodic compiles unstructured organizational data into a versioned, provenance-preserving graph, then **selects and packages** the smallest useful context for a harness query under explicit scope and token budgets.
+
+The documents in this folder (01–09) specify **how** that compiler is built on graphify: hybrid storage, delta episodes, entity resolution, and query routing. The grand plan adds **what success looks like** for retrieval (fixed tasks, human rubrics, three comparable strategies, 1–10s latency target at 10k nodes). Implementation phasing is unified in [07-feature-backlog-and-phasing.md](./07-feature-backlog-and-phasing.md).
 
 ---
 
@@ -136,6 +148,8 @@ Episodic Engine **extends** this with cross-source resolution, episode history, 
 
 ## Success Criteria
 
+### Storage and synthesis (architecture docs)
+
 | Criteria | Measure |
 |----------|---------|
 | Cross-source linking | "Auth spec PDF" node resolves to `auth.py` module with traceable provenance |
@@ -143,3 +157,15 @@ Episodic Engine **extends** this with cross-source resolution, episode history, 
 | No bloat explosion | Episode storage grows with **changes**, not total node count × episodes |
 | Query latency | Supergraph path query < 500ms for graphs up to ~500K nodes (with indexes) |
 | Regeneration safety | Re-running graphify on unchanged source produces zero new episode ops |
+
+### Harness retrieval (Grand Plan)
+
+| Criteria | Measure |
+|----------|---------|
+| Bounded scope | Named graph or saved subgraph enforced on every MCP call |
+| Evidence-first packs | Nodes, paths, provenance, budget usage — not raw graph dumps |
+| Token efficiency | Lower irrelevant tokens vs flat/unrestricted baseline on fixed tasks |
+| Retrieval latency | p50/p95 within 1–10s target at 10k-node milestone (then scale milestones) |
+| Comparable strategies | Deterministic, embedding, and model-guided retrieval on same corpus and schema |
+
+See [episodic-grand-plan.md](./episodic-grand-plan.md) for the full measurement contract and MVP vertical slice.

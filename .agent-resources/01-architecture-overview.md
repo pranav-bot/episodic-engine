@@ -1,5 +1,7 @@
 # 01 — Architecture Overview
 
+Engineering view of the **context compiler** described in [episodic-grand-plan.md](./episodic-grand-plan.md): graphify produces per-corpus graphs; Episodic registers snapshots, records episodes, resolves entities into a Supergraph, and (Phase 2+) routes harness queries to bounded, evidence-first context packs.
+
 ## Bridging graphify's Flat JSON to a Dynamic Supergraph
 
 Graphify's `graph.json` is a **serialized NetworkX graph**: nodes (entities, files, functions, concepts) and edges (AST relationships, semantic links, doc references). It is:

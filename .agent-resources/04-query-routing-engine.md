@@ -1,5 +1,7 @@
 # 04 — Query Routing Engine
 
+> **Grand Plan alignment:** This component evolves into the **unified retrieval core** ([episodic-grand-plan.md](./episodic-grand-plan.md) Phase 2): one interface, pluggable deterministic / embedding / model-guided strategies, shared evidence-first schema, and harness MCP in Phase 4.
+
 ## Purpose
 
 Accept a natural-language query and decide:
@@ -201,11 +203,18 @@ episodic path "User Auth" "authenticate_user" --scope supergraph
 
 ### MCP Tool Extension
 
-Extend graphify's MCP server with:
+Target harness contract ([Grand Plan](./episodic-grand-plan.md) Phase 4): read-only, scope-enforced, budget-aware.
 
-| Tool | New Parameters |
+| Tool (target) | Role |
+|---------------|------|
+| `search_context` | Primary retrieval — replaces ad-hoc `query_episodic_graph` naming |
+| `get_node` | Node detail within scope |
+| `get_neighbors` | Bounded traversal within scope |
+
+| Tool (extended / legacy) | New Parameters |
 |------|----------------|
-| `query_episodic_graph` | `scope`, `subgraph_id`, `as_of`, `include_contested` |
+| `query_episodic_graph` | Alias during migration → `search_context` |
+| `search_context` | `scope`, `subgraph_id`, `graph_id`, `as_of`, `strategy`, `token_budget`, `include_contested` |
 | `get_entity_history` | `global_id`, `property` |
 | `resolve_entity` | `label`, `subgraph_hint` → `global_id` |
 

@@ -1,5 +1,7 @@
 # 08 — Graphify Integration
 
+Graphify is the **first ingestion compiler** in the [Grand Plan](./episodic-grand-plan.md) (Phase 1): it produces per-corpus structure today; Episodic adds versioning, cross-corpus merge, and (later) harness-facing retrieval. Multi-resolution claims/summaries beyond graphify’s node model are research extensions on the same provenance spine ([02](./02-temporal-schema-design.md)).
+
 ## What graphify Gives Us
 
 Graphify ([safishamsi/graphify](https://github.com/safishamsi/graphify)) is the **extraction and per-corpus query layer**. Episodic Engine must treat it as an upstream dependency, not a fork target.

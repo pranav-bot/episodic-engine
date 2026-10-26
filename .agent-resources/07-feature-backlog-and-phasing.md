@@ -1,8 +1,56 @@
 # 07 — Feature Backlog & Phasing
 
-## MVP Definition (Phase 1)
+This document is the **implementation track**: concrete features, build order, and exit criteria for the hybrid-local architecture (docs 01–09). Product direction and research phases are in the **[Grand Plan](./episodic-grand-plan.md)**.
 
-Minimum viable Episodic Engine — proves the core loop without full LLM routing sophistication.
+Use **two phase namespaces** when reading plans:
+
+| Namespace | Phases | Document |
+|-----------|--------|----------|
+| **Grand Plan** | 0–5 (measurement → scale research) | [episodic-grand-plan.md](./episodic-grand-plan.md) |
+| **Implementation track** | 1–3 below + **Slice 0** (shipped PRD) | This file |
+
+---
+
+## Grand Plan ↔ Implementation Mapping
+
+| Grand Plan phase | What it means | Where it is specified | Implementation track |
+|------------------|---------------|------------------------|----------------------|
+| **0 — Measurement contract** | Fixed tasks, rubrics, latency/token metrics, common result schema | [Grand Plan](./episodic-grand-plan.md) § Phase 0 | Start in parallel with Slice 0 / Impl Phase 1; required before claiming retrieval wins |
+| **1 — Representation & ingestion** | Multi-resolution graph + provenance; graphify as first compiler | [08](./08-graphify-integration.md), [02](./02-temporal-schema-design.md) | **Slice 0** (graphify → blob + episodes); **Impl Phase 1** (multi-subgraph registry, differ) |
+| **2 — Unified retrieval core** | Deterministic + embedding + model-guided on one interface | [04](./04-query-routing-engine.md), Grand Plan § Phase 2 | **Impl Phase 2** (router, context packaging, benchmarks) |
+| **3 — Graph & subgraph management** | Named graphs, saved subgraphs, merge with lineage | [01](./01-architecture-overview.md), [03](./03-entity-resolution.md) | **Impl Phase 1** (registry, snapshots); **Impl Phase 2** (Tier 3/4 resolution, contested links) |
+| **4 — Harness integration** | Read-only MCP: `search_context`, `get_node`, `get_neighbors` | Grand Plan § Phase 4, [04](./04-query-routing-engine.md) MCP section | **Impl Phase 2** (`query_episodic_graph` → align with grand-plan tool names) |
+| **5 — Scale & search research** | 10k → 100k → 1M node milestones | Grand Plan § Phase 5, [05](./05-storage-and-database-decision.md) | **Impl Phase 3** (team backends, CI ingest) + ongoing benchmarks |
+
+### MVP vertical slice (Grand Plan) on this track
+
+The grand-plan MVP is one end-to-end path. On the implementation track it decomposes as:
+
+1. **Done / in flight:** Slice 0 — ingest one subgraph, delta episodes, idempotent re-save ([PRD](./prds/2026-07-06-single-subgraph-save.md)).
+2. **Impl Phase 1:** Multi-subgraph registry, Tier 1 resolution, Neo4j projection, CLI `query` + `--as-of` — proves synthesis loop.
+3. **Impl Phase 2:** Router + token-budgeted context packs + MCP + embedding retrieval baseline — proves harness value.
+4. **Parallel:** Grand Plan Phase 0 benchmark corpus and scoring rubric before optimizing retrieval.
+
+---
+
+## Slice 0 — Single Subgraph Save (current)
+
+**Status:** Approved PRD; primary code path in repo today.
+
+| Feature | Grand Plan touchpoint |
+|---------|------------------------|
+| `episodic init` / `save` / `status` | Phase 1 ingestion (single corpus) |
+| Content-addressed snapshots + SQLite episodes | Provenance + versioning infrastructure (Phase 0 reproducibility) |
+| Idempotent re-save (hash match) | Token/cost guardrail — no duplicate work |
+| Delta episodes on change | Phase 1 representation change events |
+
+Out of scope for Slice 0 (by design): supergraph, Neo4j, router, MCP — see PRD.
+
+---
+
+## MVP Definition (Implementation Phase 1)
+
+Minimum viable Episodic Engine on the **hybrid-local** profile — proves the multi-subgraph synthesis loop without full LLM routing or harness MCP.
 
 ### In Scope
 
@@ -35,31 +83,43 @@ Minimum viable Episodic Engine — proves the core loop without full LLM routing
 
 ## Phase 2: Intelligence Layer
 
-| Feature | Priority | Effort |
-|---------|----------|--------|
-| Rule + LLM hybrid query router | P0 | Medium |
-| Embedding-based entity resolution (Tier 3) | P0 | Medium |
-| LLM adjudication for borderline merges (Tier 4) | P1 | Low |
-| `resolution_rules.yaml` human overrides | P1 | Low |
-| MCP tools: `query_episodic_graph`, `get_entity_history` | P1 | Medium |
-| Temporal diff command (`episodic diff`) | P1 | Medium |
-| Checkpoint materialization | P1 | Medium |
-| graphify hook integration (post-commit ingest) | P2 | Low |
-| Contested/tentative link surfacing in context | P2 | Low |
+*Aligns with Grand Plan phases **2** (retrieval core) and **4** (harness MCP).*
+
+| Feature | Priority | Effort | Grand Plan |
+|---------|----------|--------|------------|
+| Rule + LLM hybrid query router | P0 | Medium | Phase 2 — scope + strategy selection |
+| Deterministic retrieval baseline (lexical + typed filters + bounded traversal) | P0 | Medium | Phase 2 — control strategy |
+| Embedding retrieval (candidates + graph filter) | P0 | Medium | Phase 2 |
+| Model-guided retrieval (budgeted traversal actions) | P1 | Medium | Phase 2 |
+| Common evidence-first result schema across strategies | P0 | Low | Phase 0 + 2 |
+| Embedding-based entity resolution (Tier 3) | P0 | Medium | Phase 3 — merge quality |
+| LLM adjudication for borderline merges (Tier 4) | P1 | Low | Phase 3 |
+| `resolution_rules.yaml` human overrides | P1 | Low | Phase 3 |
+| MCP: `search_context`, `get_node`, `get_neighbors` (read-only, scoped) | P0 | Medium | Phase 4 — prefer grand-plan names; extend graphify MCP |
+| Legacy alias: `query_episodic_graph` → unified `search_context` | P2 | Low | Phase 4 |
+| `get_entity_history` | P1 | Medium | Phase 3 + time-travel |
+| Temporal diff command (`episodic diff`) | P1 | Medium | Phase 1 / 06 |
+| Checkpoint materialization | P1 | Medium | Phase 5 prep |
+| Human usefulness benchmark on fixed tasks | P0 | Medium | Phase 0 |
+| graphify hook integration (post-commit ingest) | P2 | Low | Phase 1 |
+| Contested/tentative link surfacing in context | P2 | Low | Phase 3 — evidence packs |
 
 ---
 
 ## Phase 3: Scale & Team
 
-| Feature | Priority |
-|---------|----------|
-| PostgreSQL episode log (replace SQLite) | P1 |
-| S3/MinIO snapshot store | P2 |
-| Neo4j clustering / Aura | P2 |
-| CI/CD ingest pipeline | P1 |
-| Access control per subgraph | P2 |
-| Audit dashboard (episode timeline UI) | P3 |
-| Conflict resolution workflow UI | P3 |
+*Aligns with Grand Plan **phase 5** (scale research) and org-wide harness memory.*
+
+| Feature | Priority | Grand Plan |
+|---------|----------|------------|
+| PostgreSQL episode log (replace SQLite) | P1 | Org harnesses share one episodic store |
+| S3/MinIO snapshot store | P2 | Phase 5 — larger corpora |
+| Neo4j clustering / Aura | P2 | Phase 5 — traversal at 100k+ nodes |
+| CI/CD ingest pipeline | P1 | Phase 1 — fresh subgraphs for all harnesses |
+| Graph-scale benchmarks (10k → 100k → 1M) | P1 | Phase 5 |
+| Access control per subgraph | P2 | Phase 3 — named graph boundaries |
+| Audit dashboard (episode timeline UI) | P3 | Phase 0 — provenance visibility |
+| Conflict resolution workflow UI | P3 | Phase 3 — merge conflicts |
 
 ---
 

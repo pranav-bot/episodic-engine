@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the Phase 1 Episodic Engine core loop — ingest graphify `graph.json` subgraphs, emit delta episodes, resolve entities (Tier 1), project to Neo4j, and query via CLI with basic time-travel — using the hybrid-local profile (SQLite + local blobs + Neo4j + graphify delegation).
+**Goal:** Build **Implementation Phase 1** (see [07-feature-backlog-and-phasing.md](../07-feature-backlog-and-phasing.md)) — ingest graphify `graph.json` subgraphs, emit delta episodes, resolve entities (Tier 1), project to Neo4j, and query via CLI with basic time-travel — using the hybrid-local profile (SQLite + local blobs + Neo4j + graphify delegation). This is the synthesis half of the [Grand Plan](../episodic-grand-plan.md) MVP vertical slice (Phases 1 + 3 foundations); harness MCP and unified retrieval land in Impl Phase 2.
 
 **Architecture:** Pluggable StoragePorts with local drivers; cold blob snapshots; warm SQLite episode log; hot Neo4j supergraph projection + optional NetworkX subgraph cache; graphify subprocess for subgraph queries. See [09-hybrid-architecture.md](../09-hybrid-architecture.md).
 

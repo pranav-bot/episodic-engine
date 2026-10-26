@@ -1,5 +1,14 @@
 # Episodic Context Engine Grand Plan
 
+**Status:** North-star product direction (2026-10-27)  
+**Implementation detail:** [00](./00-system-overview.md)–[09](./09-hybrid-architecture.md)  
+**Build order & feature list:** [07-feature-backlog-and-phasing.md](./07-feature-backlog-and-phasing.md)  
+**In repo today:** [Single Subgraph Save PRD](./prds/2026-07-06-single-subgraph-save.md)
+
+This plan subsumes the earlier standalone notes on the context compiler and scoped-graph MCP (merged here). The July 2026 architecture set remains the engineering specification for supergraph synthesis, hybrid storage, and graphify integration.
+
+---
+
 ## Problem Statement
 
 How might we evolve Episodic beyond context version control into an
@@ -50,6 +59,8 @@ benchmark until these distributions are explicit.
 
 ## Grand Plan
 
+Phases 0–5 are **product/research phases**. The **implementation track** (Slice 0, Impl Phases 1–3) is mapped in [07](./07-feature-backlog-and-phasing.md).
+
 ### Phase 0 — Measurement Contract
 
 Define before optimizing:
@@ -65,6 +76,8 @@ Define before optimizing:
 - A common result schema for all retrieval strategies and MCP tools.
 
 ### Phase 1 — Representation and Ingestion
+
+**Architecture:** [08-graphify-integration.md](./08-graphify-integration.md) (today’s compiler), [02-temporal-schema-design.md](./02-temporal-schema-design.md) (episodes), [01-architecture-overview.md](./01-architecture-overview.md) (snapshots → supergraph). **Current code:** graphify run → blob + SQLite via `episodic save`.
 
 Compile unstructured sources into linked layers:
 
@@ -82,6 +95,8 @@ representations. Preserve enough source evidence to audit every returned
 claim.
 
 ### Phase 2 — Unified Retrieval Core
+
+**Architecture:** [04-query-routing-engine.md](./04-query-routing-engine.md) (scope, packaging), [06-time-travel-queries.md](./06-time-travel-queries.md) (`as_of`). Router MVP is rule-based; grand plan adds comparable embedding and model-guided strategies.
 
 Create one retrieval interface with pluggable strategies:
 
@@ -104,6 +119,8 @@ All strategies must support:
 
 ### Phase 3 — Graph and Subgraph Management
 
+**Architecture:** [03-entity-resolution.md](./03-entity-resolution.md) (merge without silent overwrite), subgraph registry in [01](./01-architecture-overview.md), hybrid tiers in [09](./09-hybrid-architecture.md).
+
 Add graph operations in this order:
 
 1. Named graph identity and registry.
@@ -116,6 +133,8 @@ Merging must never silently overwrite conflicting claims. Every merged result
 needs provenance showing which source graphs contributed it.
 
 ### Phase 4 — Harness Integration
+
+**Architecture:** Extend graphify MCP ([08](./08-graphify-integration.md)); context pack shape in [04](./04-query-routing-engine.md). Implementation target: Impl Phase 2 in [07](./07-feature-backlog-and-phasing.md).
 
 Expose the retrieval core through a read-only MCP-style server:
 
@@ -139,6 +158,8 @@ Antigravity, and other compatible harnesses. Avoid separate harness-specific
 retrieval implementations.
 
 ### Phase 5 — Scale and Search Research
+
+**Architecture:** [05-storage-and-database-decision.md](./05-storage-and-database-decision.md), team mode in [09](./09-hybrid-architecture.md), Impl Phase 3 in [07](./07-feature-backlog-and-phasing.md).
 
 Scale the same benchmark across controlled graph sizes and densities:
 
@@ -181,7 +202,8 @@ or consumes more tokens is not an improvement.
 
 ## MVP Scope
 
-The first delivery is one vertical slice:
+The first delivery is one vertical slice (decomposed on the implementation track in [07](./07-feature-backlog-and-phasing.md)):
+
 
 - Ingest a bounded set of unstructured documents.
 - Compile a multi-resolution, provenance-preserving graph.
