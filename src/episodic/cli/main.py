@@ -13,6 +13,7 @@ from episodic.graph import (
     delete_graph,
     list_registered_graphs,
     register_graph,
+    resolve_registered_graph,
 )
 from episodic.ingest.markdown_node import ingest_markdown_node
 
@@ -24,7 +25,7 @@ app = typer.Typer(
         "  1. episodic create-graph --name \"My graph\" "
         "--directory ./my-graph\n"
         "  2. episodic ingest-node --source note.md "
-        "--graph-json ./my-graph/graph.json\n"
+        "--name \"My graph\"\n"
         "  3. episodic graphs"
     ),
     no_args_is_help=True,
@@ -73,16 +74,19 @@ def graphs_cmd(
         typer.echo("No graphs registered.")
         return
 
-    typer.echo(f"{'name':<30} {'graph':<60} {'nodes':>5} {'links':>5} status")
-    for name, path, node_count, link_count in graphs:
-        if node_count is None:
-            typer.echo(
-                f"{name:<30} {str(path):<60} {'-':>5} {'-':>5} missing or invalid"
-            )
-        else:
-            typer.echo(
-                f"{name:<30} {str(path):<60} {node_count:>5} {link_count:>5} ok"
-            )
+    headers = ("GRAPH NAME", "LAST UPDATED", "NODES")
+    rows = [
+        (name, updated or "missing or invalid", "-" if node_count is None else str(node_count))
+        for name, _, node_count, updated in graphs
+    ]
+    widths = [max(len(header), *(len(row[index]) for row in rows)) for index, header in enumerate(headers)]
+    separator = "+-" + "-+-".join("-" * width for width in widths) + "-+"
+    typer.echo(separator)
+    typer.echo("| " + " | ".join(header.ljust(width) for header, width in zip(headers, widths)) + " |")
+    typer.echo(separator)
+    for row in rows:
+        typer.echo("| " + " | ".join(value.ljust(width) for value, width in zip(row, widths)) + " |")
+    typer.echo(separator)
 
 
 @app.command("delete-graph")
@@ -106,7 +110,7 @@ def delete_graph_cmd(
 @app.command("ingest-node")
 def ingest_node_cmd(
     source: Path = typer.Option(..., "--source", help="Markdown node file"),
-    graph_json: Path = typer.Option(..., "--graph-json", help="Graph file to update"),
+    name: str = typer.Option(..., "--name", help="Registered graph name to update"),
 ) -> None:
     """Interactively append a Markdown node to a graph.
 
@@ -117,10 +121,10 @@ def ingest_node_cmd(
     ID to create a parent link and build a chain.
 
     Example:
-        episodic ingest-node --source note.md --graph-json ./my-graph/graph.json
+        episodic ingest-node --source note.md --name "My graph"
     """
-    graph_path = graph_json.resolve()
     try:
+        graph_path = resolve_registered_graph(name)
         graph = json.loads(graph_path.read_text(encoding="utf-8"))
         if not isinstance(graph, dict) or not isinstance(graph.get("nodes"), list):
             raise ValueError(f"invalid graph.json: {graph_path}")
@@ -149,7 +153,7 @@ def ingest_node_cmd(
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1) from exc
 
-    typer.echo(f"added: node={node['id']} graph={graph_json.resolve()}")
+    typer.echo(f"added: node={node['id']} graph={name}")
 
 
 if __name__ == "__main__":

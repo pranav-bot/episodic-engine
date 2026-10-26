@@ -32,7 +32,9 @@ def test_registered_graphs_are_read_from_central_registry(tmp_path):
     registry = tmp_path / "home" / ".episodic" / "graphs.json"
     register_graph(graph, registry)
 
-    assert list_registered_graphs(registry) == [("Elsewhere", graph.resolve(), 0, 0)]
+    listed = list_registered_graphs(registry)
+    assert listed[0][:3] == ("Elsewhere", graph.resolve(), 0)
+    assert listed[0][3]
 
 
 def test_delete_graph_removes_folder_and_registry_entry(tmp_path):

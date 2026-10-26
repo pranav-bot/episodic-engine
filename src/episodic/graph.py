@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from datetime import datetime
 from pathlib import Path
 
 
@@ -30,7 +31,7 @@ GRAPH_STRUCTURE = """Graph files use this JSON structure:
 }
 
 Add a Markdown node with:
-  episodic ingest-node --source <node.md> --graph-json <graph.json>
+  episodic ingest-node --source <node.md> --name "<graph name>"
 """
 
 def registry_path() -> Path:
@@ -71,8 +72,8 @@ def register_graph(graph_path: Path, path: Path | None = None) -> None:
     registry.write_text(json.dumps(sorted(entries), indent=2) + "\n", encoding="utf-8")
 
 
-def delete_graph(name: str, path: Path | None = None) -> None:
-    """Delete a named registered graph and its containing directory."""
+def resolve_registered_graph(name: str, path: Path | None = None) -> Path:
+    """Resolve a unique graph path by its registered graph name."""
     registry = path or registry_path()
     if not registry.is_file():
         raise ValueError(f"graph is not registered: {name}")
@@ -81,7 +82,7 @@ def delete_graph(name: str, path: Path | None = None) -> None:
     if not isinstance(data, list) or not all(isinstance(item, str) for item in data):
         raise ValueError(f"invalid graph registry: {registry}")
 
-    matches: list[tuple[str, Path]] = []
+    matches: list[Path] = []
     for item in data:
         graph_path = Path(item)
         graph_name = graph_path.parent.name
@@ -92,13 +93,26 @@ def delete_graph(name: str, path: Path | None = None) -> None:
             except (OSError, UnicodeDecodeError, json.JSONDecodeError, AttributeError):
                 pass
         if graph_name == name:
-            matches.append((item, graph_path))
+            matches.append(graph_path)
     if not matches:
         raise ValueError(f"graph is not registered: {name}")
     if len(matches) > 1:
         raise ValueError(f"multiple registered graphs have the name: {name}")
+    return matches[0]
 
-    resolved, graph_path = matches[0]
+
+def delete_graph(name: str, path: Path | None = None) -> None:
+    """Delete a named registered graph and its containing directory."""
+    registry = path or registry_path()
+    if not registry.is_file():
+        raise ValueError(f"graph is not registered: {name}")
+
+    data = json.loads(registry.read_text(encoding="utf-8"))
+    if not isinstance(data, list) or not all(isinstance(item, str) for item in data):
+        raise ValueError(f"invalid graph registry: {registry}")
+
+    graph_path = resolve_registered_graph(name, registry)
+    resolved = str(graph_path.resolve())
 
     graph_directory = graph_path.resolve().parent
     if graph_directory in {Path("/"), Path.home(), Path.cwd()}:
@@ -112,8 +126,8 @@ def delete_graph(name: str, path: Path | None = None) -> None:
 
 def list_registered_graphs(
     path: Path | None = None,
-) -> list[tuple[str, Path, int | None, int | None]]:
-    """Read registered graphs and return names and current node/link counts."""
+) -> list[tuple[str, Path, int | None, str | None]]:
+    """Read registered graphs and return names, node counts, and update times."""
     registry = path or registry_path()
     if not registry.is_file():
         return []
@@ -121,7 +135,7 @@ def list_registered_graphs(
     if not isinstance(data, list) or not all(isinstance(item, str) for item in data):
         raise ValueError(f"invalid graph registry: {registry}")
 
-    graphs: list[tuple[str, Path, int | None, int | None]] = []
+    graphs: list[tuple[str, Path, int | None, str | None]] = []
     for item in data:
         graph = Path(item)
         if not graph.is_file():
@@ -131,13 +145,13 @@ def list_registered_graphs(
             content = json.loads(graph.read_text(encoding="utf-8"))
             name = content.get("name", graph.parent.name)
             nodes = content["nodes"]
-            links = content.get("links", content.get("edges", []))
             if not isinstance(name, str) or not name.strip():
                 raise ValueError
-            if not isinstance(nodes, list) or not isinstance(links, list):
+            if not isinstance(nodes, list):
                 raise ValueError
         except (OSError, UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError):
             graphs.append((graph.stem, graph, None, None))
             continue
-        graphs.append((name, graph, len(nodes), len(links)))
+        updated = datetime.fromtimestamp(graph.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+        graphs.append((name, graph, len(nodes), updated))
     return graphs
