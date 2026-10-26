@@ -5,7 +5,6 @@ description = "Episodic memory layer for graphify knowledge graphs"
 requires-python = ">=3.11"
 dependencies = [
     "typer>=0.12",
-    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]

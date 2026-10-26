@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -34,6 +35,17 @@ Add a Markdown node with:
   episodic ingest-node --source <node.md> --name "<graph name>"
 """
 
+def write_text_atomic(path: Path, text: str) -> None:
+    """Replace path in one step so a reader never sees a half-written file."""
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        temporary.write_text(text, encoding="utf-8")
+        os.replace(temporary, path)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
 def registry_path() -> Path:
     """Return the central graph registry path."""
     return Path.home() / ".episodic" / "graphs.json"
@@ -49,9 +61,9 @@ def create_graph(directory: Path, name: str) -> Path:
     graph_path = directory / "graph.json"
     if graph_path.exists():
         raise FileExistsError(f"graph already exists: {graph_path}")
-    graph_path.write_text(
+    write_text_atomic(
+        graph_path,
         json.dumps({"name": name, "nodes": [], "links": []}, indent=2) + "\n",
-        encoding="utf-8",
     )
     return graph_path
 
@@ -69,7 +81,7 @@ def register_graph(graph_path: Path, path: Path | None = None) -> None:
     resolved = str(graph_path.resolve())
     if resolved not in entries:
         entries.append(resolved)
-    registry.write_text(json.dumps(sorted(entries), indent=2) + "\n", encoding="utf-8")
+    write_text_atomic(registry, json.dumps(sorted(entries), indent=2) + "\n")
 
 
 def resolve_registered_graph(name: str, path: Path | None = None) -> Path:
@@ -102,7 +114,7 @@ def resolve_registered_graph(name: str, path: Path | None = None) -> Path:
 
 
 def delete_graph(name: str, path: Path | None = None) -> None:
-    """Delete a named registered graph and its containing directory."""
+    """Delete a named registered graph. Remove its folder only when it holds nothing else."""
     registry = path or registry_path()
     if not registry.is_file():
         raise ValueError(f"graph is not registered: {name}")
@@ -119,9 +131,13 @@ def delete_graph(name: str, path: Path | None = None) -> None:
         raise ValueError(f"refusing to delete unsafe graph directory: {graph_directory}")
 
     if graph_directory.is_dir():
-        shutil.rmtree(graph_directory)
+        names = {item.name for item in graph_directory.iterdir()}
+        if names <= {"graph.json"}:
+            shutil.rmtree(graph_directory)
+        elif graph_path.is_file():
+            graph_path.unlink()
     data.remove(resolved)
-    registry.write_text(json.dumps(sorted(data), indent=2) + "\n", encoding="utf-8")
+    write_text_atomic(registry, json.dumps(sorted(data), indent=2) + "\n")
 
 
 def list_registered_graphs(
@@ -139,7 +155,7 @@ def list_registered_graphs(
     for item in data:
         graph = Path(item)
         if not graph.is_file():
-            graphs.append((graph.stem, graph, None, None))
+            graphs.append((graph.parent.name, graph, None, None))
             continue
         try:
             content = json.loads(graph.read_text(encoding="utf-8"))
@@ -150,7 +166,7 @@ def list_registered_graphs(
             if not isinstance(nodes, list):
                 raise ValueError
         except (OSError, UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError):
-            graphs.append((graph.stem, graph, None, None))
+            graphs.append((graph.parent.name, graph, None, None))
             continue
         updated = datetime.fromtimestamp(graph.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
         graphs.append((name, graph, len(nodes), updated))

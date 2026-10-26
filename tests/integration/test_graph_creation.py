@@ -46,3 +46,40 @@ def test_delete_graph_removes_folder_and_registry_entry(tmp_path):
 
     assert not graph.parent.exists()
     assert list_registered_graphs(registry) == []
+
+
+def test_delete_graph_keeps_a_directory_that_holds_other_files(tmp_path):
+    graph = create_graph(tmp_path / "knowledge", "Knowledge")
+    extra = graph.parent / "notes.txt"
+    extra.write_text("keep\n", encoding="utf-8")
+    registry = tmp_path / "graphs.json"
+    register_graph(graph, registry)
+
+    delete_graph("Knowledge", registry)
+
+    assert extra.is_file()
+    assert not graph.exists()
+    assert graph.parent.is_dir()
+    assert list_registered_graphs(registry) == []
+
+
+def test_missing_graph_file_is_listed_by_folder_name(tmp_path):
+    graph = create_graph(tmp_path / "knowledge", "Knowledge")
+    registry = tmp_path / "graphs.json"
+    register_graph(graph, registry)
+    graph.unlink()
+
+    listed = list_registered_graphs(registry)
+
+    assert listed[0][0] == "knowledge"
+    assert listed[0][2] is None
+
+
+def test_register_graph_leaves_no_temporary_file(tmp_path):
+    graph = create_graph(tmp_path / "knowledge", "Knowledge")
+    registry = tmp_path / "graphs.json"
+
+    register_graph(graph, registry)
+
+    assert list(tmp_path.glob(".graphs.json.*.tmp")) == []
+    assert json.loads(registry.read_text(encoding="utf-8")) == [str(graph.resolve())]

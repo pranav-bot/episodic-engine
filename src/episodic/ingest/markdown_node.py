@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from episodic.graph import write_text_atomic
+
 def parse_markdown_node(
     path: Path,
     *,
@@ -62,8 +64,5 @@ def ingest_markdown_node(
         graph["links"].append(
             {"source": parent_id, "target": node["id"], "type": "parent"}
         )
-    graph_path.write_text(
-        json.dumps(graph, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    write_text_atomic(graph_path, json.dumps(graph, ensure_ascii=False, indent=2) + "\n")
     return node

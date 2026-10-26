@@ -46,13 +46,15 @@ class MemoryGraph:
     ) -> tuple[str, ...]:
         if node_id not in self.nodes:
             raise KeyError(node_id)
+        if direction not in ("out", "in"):
+            raise ValueError(f"unknown direction: {direction}")
         table = self.outgoing if direction == "out" else self.incoming
         bucket = table[node_id]
         if edge_type is None:
             ids = [item for group in bucket.values() for item in group]
         else:
             ids = list(bucket.get(edge_type, ()))
-        return tuple(sorted(ids))
+        return tuple(sorted(set(ids)))
 
     def put_payload(self, node_id: str, body: bytes) -> None:
         if node_id not in self.nodes:
@@ -68,18 +70,22 @@ class MemoryGraph:
             current = self.nodes.get(node.id)
             if current is None:
                 self.add_node(node)
-                continue
-            clashed = False
-            if current.label != node.label:
-                self.conflicts.append(
-                    MergeConflict(node.id, "label", current.label, node.label)
-                )
-                clashed = True
-            if current.type != node.type:
-                self.conflicts.append(MergeConflict(node.id, "type", current.type, node.type))
-                clashed = True
-            if clashed:
-                self.extra_provenance.setdefault(node.id, []).append(node.provenance_ref)
+            else:
+                if current.label != node.label:
+                    self._record_clash(node, "label", current.label, node.label)
+                if current.type != node.type:
+                    self._record_clash(node, "type", current.type, node.type)
+            body = source.payloads.get(node.id)
+            if body is not None and node.id not in self.payloads:
+                self.payloads[node.id] = body
         for edge in source.edges.values():
             if edge.id not in self.edges:
                 self.add_edge(edge)
+
+    def _record_clash(self, node: HotNode, field: str, destination: str, source: str) -> None:
+        if any(item.node_id == node.id and item.field == field for item in self.conflicts):
+            return
+        self.conflicts.append(MergeConflict(node.id, field, destination, source))
+        recorded = self.extra_provenance.setdefault(node.id, [])
+        if node.provenance_ref not in recorded:
+            recorded.append(node.provenance_ref)

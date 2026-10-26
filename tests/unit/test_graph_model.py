@@ -159,3 +159,52 @@ def test_merge_keeps_destination_label_and_records_the_clash():
     assert {item.field for item in into.conflicts} == {"label", "type"}
     assert into.extra_provenance[kept.id][0].source_path == "docs/login.md"
     assert source.nodes[kept.id].label == "renamed"
+
+    into.merge(source)
+
+    assert len(into.conflicts) == 2
+    assert len(into.extra_provenance[kept.id]) == 1
+
+
+def test_merge_copies_payload_for_a_source_only_node():
+    into = memory_graph()
+    source = memory_graph()
+    check = source.add_node(hot_node("check", "check"))
+    source.put_payload(check.id, b"pdf-bytes")
+
+    into.merge(source)
+
+    assert into.get_payload(check.id) == b"pdf-bytes"
+
+
+def test_merge_copies_payload_onto_an_existing_node_that_has_none():
+    into = memory_graph()
+    source = memory_graph()
+    login = into.add_node(hot_node("login", "login"))
+    source.add_node(hot_node("login", "login"))
+    source.put_payload(login.id, b"pdf-bytes")
+
+    into.merge(source)
+
+    assert into.nodes[login.id].label == "login"
+    assert into.get_payload(login.id) == b"pdf-bytes"
+
+
+def test_untyped_neighbors_lists_each_node_once():
+    graph = memory_graph()
+    caller = graph.add_node(hot_node("login", "login"))
+    callee = graph.add_node(hot_node("check", "check"))
+    graph.add_edge(Edge(edge_id(caller.id, callee.id, "calls"), "calls", caller.id, callee.id))
+    graph.add_edge(
+        Edge(edge_id(caller.id, callee.id, "references"), "references", caller.id, callee.id)
+    )
+
+    assert graph.neighbors(caller.id) == (callee.id,)
+
+
+def test_unknown_direction_raises():
+    graph = memory_graph()
+    caller = graph.add_node(hot_node("login", "login"))
+
+    with pytest.raises(ValueError):
+        graph.neighbors(caller.id, direction="both")

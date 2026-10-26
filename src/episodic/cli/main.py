@@ -93,9 +93,12 @@ def graphs_cmd(
 def delete_graph_cmd(
     name: str = typer.Option(..., "--name", help="Name of the registered graph to delete"),
 ) -> None:
-    """Delete a registered graph, its folder, and its registry entry."""
+    """Delete a registered graph and its registry entry.
+
+    The graph folder is removed only when graph.json is the only file in it.
+    """
     typer.confirm(
-        f"Delete the registered graph named {name} and its folder?",
+        f"Delete the registered graph named {name}?",
         abort=True,
     )
     try:
