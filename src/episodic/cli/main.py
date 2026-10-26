@@ -21,7 +21,8 @@ app = typer.Typer(
     help=(
         "Create and manage file-based knowledge graphs.\n\n"
         "Typical workflow:\n"
-        "  1. episodic create-graph --directory ./my-graph\n"
+        "  1. episodic create-graph --name \"My graph\" "
+        "--directory ./my-graph\n"
         "  2. episodic ingest-node --source note.md "
         "--graph-json ./my-graph/graph.json\n"
         "  3. episodic graphs"
@@ -32,6 +33,7 @@ app = typer.Typer(
 
 @app.command("create-graph")
 def create_graph_cmd(
+    name: str = typer.Option(..., "--name", help="Name for the graph"),
     directory: Path = typer.Option(
         Path(".episodic"),
         "--directory",
@@ -44,10 +46,10 @@ def create_graph_cmd(
     existing graph.json.
 
     Example:
-        episodic create-graph --directory ./my-graph
+        episodic create-graph --name "My graph" --directory ./my-graph
     """
     try:
-        graph_path = create_graph(directory)
+        graph_path = create_graph(directory, name)
         register_graph(graph_path)
     except (FileExistsError, OSError, ValueError, json.JSONDecodeError) as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
@@ -71,31 +73,34 @@ def graphs_cmd(
         typer.echo("No graphs registered.")
         return
 
-    typer.echo(f"{'graph':<60} {'nodes':>5} {'links':>5} status")
-    for path, node_count, link_count in graphs:
+    typer.echo(f"{'name':<30} {'graph':<60} {'nodes':>5} {'links':>5} status")
+    for name, path, node_count, link_count in graphs:
         if node_count is None:
-            typer.echo(f"{str(path):<60} {'-':>5} {'-':>5} missing or invalid")
+            typer.echo(
+                f"{name:<30} {str(path):<60} {'-':>5} {'-':>5} missing or invalid"
+            )
         else:
-            typer.echo(f"{str(path):<60} {node_count:>5} {link_count:>5} ok")
+            typer.echo(
+                f"{name:<30} {str(path):<60} {node_count:>5} {link_count:>5} ok"
+            )
 
 
 @app.command("delete-graph")
 def delete_graph_cmd(
-    graph_json: Path = typer.Option(..., "--graph-json", help="Registered graph file to delete"),
+    name: str = typer.Option(..., "--name", help="Name of the registered graph to delete"),
 ) -> None:
     """Delete a registered graph, its folder, and its registry entry."""
-    graph_path = graph_json.resolve()
     typer.confirm(
-        f"Delete {graph_path.parent} and everything inside it?",
+        f"Delete the registered graph named {name} and its folder?",
         abort=True,
     )
     try:
-        delete_graph(graph_path)
+        delete_graph(name)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1) from exc
 
-    typer.echo(f"deleted: {graph_path.parent}")
+    typer.echo(f"deleted: {name}")
 
 
 @app.command("ingest-node")

@@ -22,11 +22,13 @@ def test_ingest_help_explains_parent_nodes():
 def test_delete_graph_requires_confirmation_and_removes_graph(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     graph_dir = tmp_path / "project" / "knowledge"
-    CliRunner().invoke(app, ["create-graph", "--directory", str(graph_dir)])
+    CliRunner().invoke(
+        app, ["create-graph", "--name", "Knowledge", "--directory", str(graph_dir)]
+    )
 
     result = CliRunner().invoke(
         app,
-        ["delete-graph", "--graph-json", str(graph_dir / "graph.json")],
+        ["delete-graph", "--name", "Knowledge"],
         input="y\n",
     )
 
@@ -39,11 +41,13 @@ def test_delete_graph_requires_confirmation_and_removes_graph(monkeypatch, tmp_p
 def test_delete_graph_can_be_cancelled(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     graph_dir = tmp_path / "project" / "knowledge"
-    CliRunner().invoke(app, ["create-graph", "--directory", str(graph_dir)])
+    CliRunner().invoke(
+        app, ["create-graph", "--name", "Knowledge", "--directory", str(graph_dir)]
+    )
 
     result = CliRunner().invoke(
         app,
-        ["delete-graph", "--graph-json", str(graph_dir / "graph.json")],
+        ["delete-graph", "--name", "Knowledge"],
         input="n\n",
     )
 
@@ -56,10 +60,12 @@ def test_create_graph_registers_graph_outside_default_directory(monkeypatch, tmp
     graph_dir = tmp_path / "project" / "knowledge"
 
     result = CliRunner().invoke(
-        app, ["create-graph", "--directory", str(graph_dir)]
+        app,
+        ["create-graph", "--name", "Project knowledge", "--directory", str(graph_dir)],
     )
     listed = CliRunner().invoke(app, ["graphs"])
 
     assert result.exit_code == 0
     assert listed.exit_code == 0
+    assert "Project knowledge" in listed.stdout
     assert str(graph_dir / "graph.json") in listed.stdout
