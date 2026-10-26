@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 
@@ -64,6 +65,29 @@ def register_graph(graph_path: Path, path: Path | None = None) -> None:
     if resolved not in entries:
         entries.append(resolved)
     registry.write_text(json.dumps(sorted(entries), indent=2) + "\n", encoding="utf-8")
+
+
+def delete_graph(graph_path: Path, path: Path | None = None) -> None:
+    """Delete a registered graph and its containing directory."""
+    registry = path or registry_path()
+    resolved = str(graph_path.resolve())
+    if not registry.is_file():
+        raise ValueError(f"graph is not registered: {graph_path}")
+
+    data = json.loads(registry.read_text(encoding="utf-8"))
+    if not isinstance(data, list) or not all(isinstance(item, str) for item in data):
+        raise ValueError(f"invalid graph registry: {registry}")
+    if resolved not in data:
+        raise ValueError(f"graph is not registered: {graph_path}")
+
+    graph_directory = graph_path.resolve().parent
+    if graph_directory in {Path("/"), Path.home(), Path.cwd()}:
+        raise ValueError(f"refusing to delete unsafe graph directory: {graph_directory}")
+
+    if graph_directory.is_dir():
+        shutil.rmtree(graph_directory)
+    data.remove(resolved)
+    registry.write_text(json.dumps(sorted(data), indent=2) + "\n", encoding="utf-8")
 
 
 def list_registered_graphs(

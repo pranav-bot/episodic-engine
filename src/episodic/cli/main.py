@@ -10,6 +10,7 @@ import typer
 from episodic.graph import (
     GRAPH_STRUCTURE,
     create_graph,
+    delete_graph,
     list_registered_graphs,
     register_graph,
 )
@@ -76,6 +77,25 @@ def graphs_cmd(
             typer.echo(f"{str(path):<60} {'-':>5} {'-':>5} missing or invalid")
         else:
             typer.echo(f"{str(path):<60} {node_count:>5} {link_count:>5} ok")
+
+
+@app.command("delete-graph")
+def delete_graph_cmd(
+    graph_json: Path = typer.Option(..., "--graph-json", help="Registered graph file to delete"),
+) -> None:
+    """Delete a registered graph, its folder, and its registry entry."""
+    graph_path = graph_json.resolve()
+    typer.confirm(
+        f"Delete {graph_path.parent} and everything inside it?",
+        abort=True,
+    )
+    try:
+        delete_graph(graph_path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(f"deleted: {graph_path.parent}")
 
 
 @app.command("ingest-node")

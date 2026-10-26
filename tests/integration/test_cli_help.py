@@ -19,6 +19,38 @@ def test_ingest_help_explains_parent_nodes():
     assert "top-level node" in output
 
 
+def test_delete_graph_requires_confirmation_and_removes_graph(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    graph_dir = tmp_path / "project" / "knowledge"
+    CliRunner().invoke(app, ["create-graph", "--directory", str(graph_dir)])
+
+    result = CliRunner().invoke(
+        app,
+        ["delete-graph", "--graph-json", str(graph_dir / "graph.json")],
+        input="y\n",
+    )
+
+    assert result.exit_code == 0
+    assert not graph_dir.exists()
+    assert "deleted:" in result.stdout
+    assert CliRunner().invoke(app, ["graphs"]).stdout == "No graphs registered.\n"
+
+
+def test_delete_graph_can_be_cancelled(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    graph_dir = tmp_path / "project" / "knowledge"
+    CliRunner().invoke(app, ["create-graph", "--directory", str(graph_dir)])
+
+    result = CliRunner().invoke(
+        app,
+        ["delete-graph", "--graph-json", str(graph_dir / "graph.json")],
+        input="n\n",
+    )
+
+    assert result.exit_code != 0
+    assert graph_dir.exists()
+
+
 def test_create_graph_registers_graph_outside_default_directory(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     graph_dir = tmp_path / "project" / "knowledge"
