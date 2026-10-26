@@ -7,24 +7,48 @@ from pathlib import Path
 
 import typer
 
-from episodic.graph import GRAPH_STRUCTURE, create_graph, list_graphs
+from episodic.graph import (
+    GRAPH_STRUCTURE,
+    create_graph,
+    list_registered_graphs,
+    register_graph,
+)
 from episodic.ingest.markdown_node import ingest_markdown_node
 
 app = typer.Typer(
     name="episodic",
-    help="File-based graph creation and Markdown node ingestion.",
+    help=(
+        "Create and manage file-based knowledge graphs.\n\n"
+        "Typical workflow:\n"
+        "  1. episodic create-graph --directory ./my-graph\n"
+        "  2. episodic ingest-node --source note.md "
+        "--graph-json ./my-graph/graph.json\n"
+        "  3. episodic graphs"
+    ),
     no_args_is_help=True,
 )
 
 
 @app.command("create-graph")
 def create_graph_cmd(
-    directory: Path = typer.Option(..., "--directory", help="Directory for graph.json"),
+    directory: Path = typer.Option(
+        Path(".episodic"),
+        "--directory",
+        help="Directory for graph.json (default: .episodic/)",
+    ),
 ) -> None:
-    """Create an empty graph.json and explain how to add nodes."""
+    """Create an empty graph.json.
+
+    The command creates the directory when needed and never overwrites an
+    existing graph.json.
+
+    Example:
+        episodic create-graph --directory ./my-graph
+    """
     try:
         graph_path = create_graph(directory)
-    except (FileExistsError, OSError) as exc:
+        register_graph(graph_path)
+    except (FileExistsError, OSError, ValueError, json.JSONDecodeError) as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1) from exc
 
@@ -34,26 +58,24 @@ def create_graph_cmd(
 
 @app.command("graphs")
 def graphs_cmd(
-    directory: Path = typer.Option(
-        Path("."),
-        "--directory",
-        help="Directory to search recursively for graph.json files",
-    ),
 ) -> None:
-    """List graph.json files and their node/link counts."""
+    """List every graph recorded in ~/.episodic/graphs.json."""
     try:
-        graphs = list_graphs(directory)
-    except FileNotFoundError as exc:
+        graphs = list_registered_graphs()
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1) from exc
 
     if not graphs:
-        typer.echo(f"No graphs found under {directory.resolve()}")
+        typer.echo("No graphs registered.")
         return
 
-    typer.echo(f"{'graph':<60} {'nodes':>5} {'links':>5}")
+    typer.echo(f"{'graph':<60} {'nodes':>5} {'links':>5} status")
     for path, node_count, link_count in graphs:
-        typer.echo(f"{str(path):<60} {node_count:>5} {link_count:>5}")
+        if node_count is None:
+            typer.echo(f"{str(path):<60} {'-':>5} {'-':>5} missing or invalid")
+        else:
+            typer.echo(f"{str(path):<60} {node_count:>5} {link_count:>5} ok")
 
 
 @app.command("ingest-node")
@@ -61,7 +83,17 @@ def ingest_node_cmd(
     source: Path = typer.Option(..., "--source", help="Markdown node file"),
     graph_json: Path = typer.Option(..., "--graph-json", help="Graph file to update"),
 ) -> None:
-    """Interactively append a node to an existing graph.json."""
+    """Interactively append a Markdown node to a graph.
+
+    The Markdown file is stored as the node content. The command asks for the
+    node ID, title, description, and optional parent ID.
+
+    Leave the parent ID blank to create a top-level node. Use an existing node
+    ID to create a parent link and build a chain.
+
+    Example:
+        episodic ingest-node --source note.md --graph-json ./my-graph/graph.json
+    """
     graph_path = graph_json.resolve()
     try:
         graph = json.loads(graph_path.read_text(encoding="utf-8"))
