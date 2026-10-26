@@ -1,4 +1,4 @@
-"""CLI for file-based graph creation and Markdown node ingestion."""
+"""CLI for file-based knowledge graphs."""
 
 from __future__ import annotations
 
@@ -16,6 +16,9 @@ from episodic.graph import (
     resolve_registered_graph,
 )
 from episodic.ingest.markdown_node import ingest_markdown_node
+from episodic.model.document import load_graph, save_graph
+from episodic.model.identity import edge_id
+from episodic.model.types import EDGE_TYPES, Edge
 
 app = typer.Typer(
     name="episodic",
@@ -26,7 +29,9 @@ app = typer.Typer(
         "--directory ./my-graph\n"
         "  2. episodic ingest-node --source note.md "
         "--name \"My graph\"\n"
-        "  3. episodic graphs"
+        "  3. episodic link --name \"My graph\" --source a --target b --type calls\n"
+        "  4. episodic neighbors --name \"My graph\" --node a\n"
+        "  5. episodic graphs"
     ),
     no_args_is_help=True,
 )
@@ -114,49 +119,100 @@ def delete_graph_cmd(
 def ingest_node_cmd(
     source: Path = typer.Option(..., "--source", help="Markdown node file"),
     name: str = typer.Option(..., "--name", help="Registered graph name to update"),
+    edge_type: str = typer.Option(
+        "contains",
+        "--type",
+        help="Link from the document to each heading. A heading can override it with {calls}.",
+    ),
 ) -> None:
-    """Interactively append a Markdown node to a graph.
+    """Append a Markdown file as a document node.
 
-    The Markdown file is stored as the node content. The command asks for the
-    node ID, title, description, and optional parent ID.
-
-    Leave the parent ID blank to create a top-level node. Use an existing node
-    ID to create a parent link and build a chain.
+    The node id is a fingerprint of the file. Each heading becomes a chunk.
+    The link type defaults to contains. Pass --type, or write the type on a
+    heading, to use another one: imports, calls, references, or describes.
 
     Example:
-        episodic ingest-node --source note.md --name "My graph"
+        episodic ingest-node --source note.md --name "My graph" --type describes
     """
     try:
         graph_path = resolve_registered_graph(name)
-        graph = json.loads(graph_path.read_text(encoding="utf-8"))
-        if not isinstance(graph, dict) or not isinstance(graph.get("nodes"), list):
-            raise ValueError(f"invalid graph.json: {graph_path}")
-        existing_ids = [str(node.get("id")) for node in graph["nodes"]]
-        typer.echo(
-            "Existing node IDs: "
-            + (", ".join(existing_ids) if existing_ids else "(none; node will be top-level)")
-        )
-        node_id = typer.prompt("Node ID")
-        title = typer.prompt("Node title")
-        description = typer.prompt("Node description")
-        parent_id = typer.prompt(
-            "Parent node ID (leave blank for a top-level node)",
-            default="",
-            show_default=False,
-        ) or None
-        node = ingest_markdown_node(
-            source,
-            graph_path,
-            node_id=node_id,
-            title=title,
-            description=description,
-            parent_id=parent_id,
-        )
+        node = ingest_markdown_node(source, graph_path, edge_type=edge_type)
     except (FileNotFoundError, ValueError, OSError, json.JSONDecodeError) as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1) from exc
 
-    typer.echo(f"added: node={node['id']} graph={name}")
+    typer.echo(f"{'added' if node['created'] else 'updated'}: node={node['id']} graph={name}")
+
+
+@app.command("link")
+def link_cmd(
+    name: str = typer.Option(..., "--name", help="Registered graph name"),
+    source: str = typer.Option(..., "--source", help="Source node id"),
+    target: str = typer.Option(..., "--target", help="Target node id"),
+    edge_type: str = typer.Option(..., "--type", help="contains, imports, calls, references, or describes"),
+) -> None:
+    """Add one typed edge between two nodes that are already in the graph."""
+    try:
+        if edge_type not in EDGE_TYPES:
+            raise ValueError(f"unknown edge type: {edge_type}")
+        graph_path = resolve_registered_graph(name)
+        graph_name, graph = load_graph(graph_path)
+        graph.add_edge(Edge(edge_id(source, target, edge_type), edge_type, source, target))
+        save_graph(graph_path, graph_name, graph)
+    except (FileNotFoundError, KeyError, OSError, ValueError, json.JSONDecodeError) as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"linked: {source} -{edge_type}-> {target}")
+
+
+@app.command("neighbors")
+def neighbors_cmd(
+    name: str = typer.Option(..., "--name", help="Registered graph name"),
+    node: str = typer.Option(..., "--node", help="Start node id"),
+    edge_type: str | None = typer.Option(None, "--edge-type", help="Limit to one edge type"),
+    direction: str = typer.Option("out", "--direction", help="out or in"),
+) -> None:
+    """Print the nodes one step from a node. File bytes are not read."""
+    try:
+        _graph_name, graph = load_graph(resolve_registered_graph(name))
+        neighbor_ids = graph.neighbors(node, edge_type=edge_type, direction=direction)
+    except (FileNotFoundError, KeyError, OSError, ValueError, json.JSONDecodeError) as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+    if not neighbor_ids:
+        typer.echo("(none)")
+        return
+    for neighbor_id in neighbor_ids:
+        label = graph.nodes[neighbor_id].label
+        typer.echo(f"{neighbor_id}\t{label}")
+
+
+@app.command("merge-graphs")
+def merge_graphs_cmd(
+    into: str = typer.Option(..., "--into", help="Graph that receives the merge"),
+    source_name: str = typer.Option(..., "--from", help="Graph that is copied in and left unchanged"),
+) -> None:
+    """Copy nodes, edges, and missing payloads from one graph into another.
+
+    A label or type clash keeps the destination value and is saved on the
+    destination graph.
+    """
+    try:
+        into_path = resolve_registered_graph(into)
+        source_path = resolve_registered_graph(source_name)
+        into_name, destination = load_graph(into_path)
+        _source_name, source = load_graph(source_path)
+        destination.merge(source)
+        save_graph(into_path, into_name, destination)
+    except (FileNotFoundError, KeyError, OSError, ValueError, json.JSONDecodeError) as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"merged: into={into} from={source_name} conflicts={len(destination.conflicts)}")
+    for conflict in destination.conflicts:
+        typer.echo(
+            f"conflict: {conflict.node_id} {conflict.field} "
+            f"kept={conflict.destination} source={conflict.source}"
+        )
 
 
 if __name__ == "__main__":

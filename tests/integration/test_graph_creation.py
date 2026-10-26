@@ -16,7 +16,10 @@ def test_create_graph_writes_empty_graph(tmp_path):
     assert json.loads(path.read_text(encoding="utf-8")) == {
         "name": "Knowledge",
         "nodes": [],
-        "links": [],
+        "edges": [],
+        "payloads": {},
+        "conflicts": [],
+        "extra_provenance": {},
     }
 
 

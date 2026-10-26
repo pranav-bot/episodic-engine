@@ -9,30 +9,30 @@ from datetime import datetime
 from pathlib import Path
 
 
-GRAPH_STRUCTURE = """Graph files use this JSON structure:
+GRAPH_STRUCTURE = """Graph files keep walk data separate from file bytes.
+Node ids are fingerprints of type, path, and name. Ingest creates them.
 
 {
   "name": "My knowledge graph",
   "nodes": [
     {
-      "id": "auth-note",
+      "id": "<fingerprint>",
+      "type": "document",
       "label": "Authentication",
-      "description": "What this node represents",
-      "file": "/path/to/note.md",
-      "content": "Markdown body"
+      "provenance": {"source_path": "note.md", "locator": null}
     }
   ],
-  "links": [
-    {
-      "source": "auth-note",
-      "target": "other-node",
-      "type": "parent"
-    }
-  ]
+  "edges": [
+    {"source": "<document id>", "target": "<chunk id>", "type": "contains"}
+  ],
+  "payloads": {"<document id>": {"text": "Markdown body"}}
 }
 
-Add a Markdown node with:
-  episodic ingest-node --source <node.md> --name "<graph name>"
+Edge types: contains, imports, calls, references, describes.
+
+  episodic ingest-node --source note.md --name "My graph" --type describes
+  episodic neighbors --name "My graph" --node <document id> --edge-type contains
+  episodic merge-graphs --into "My graph" --from "Other graph"
 """
 
 def write_text_atomic(path: Path, text: str) -> None:
@@ -61,10 +61,9 @@ def create_graph(directory: Path, name: str) -> Path:
     graph_path = directory / "graph.json"
     if graph_path.exists():
         raise FileExistsError(f"graph already exists: {graph_path}")
-    write_text_atomic(
-        graph_path,
-        json.dumps({"name": name, "nodes": [], "links": []}, indent=2) + "\n",
-    )
+    from episodic.model.document import empty_graph_text
+
+    write_text_atomic(graph_path, empty_graph_text(name))
     return graph_path
 
 

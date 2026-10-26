@@ -1,68 +1,97 @@
-"""Build and ingest graph nodes from Markdown files."""
+"""Ingest one Markdown file as a document node and its heading chunks."""
 
 from __future__ import annotations
 
-import json
+import re
 from pathlib import Path
 from typing import Any
 
-from episodic.graph import write_text_atomic
+from episodic.model.document import load_graph, save_graph
+from episodic.model.identity import edge_id, node_id
+from episodic.model.types import EDGE_TYPES, Edge, HotNode, Provenance
 
-def parse_markdown_node(
-    path: Path,
-    *,
-    node_id: str,
-    title: str,
-    description: str,
-) -> dict[str, Any]:
-    """Build a graph node from plain Markdown and interactive details."""
-    if not path.is_file():
-        raise FileNotFoundError(f"Markdown file not found: {path}")
-    if path.suffix.lower() != ".md":
-        raise ValueError(f"Markdown source must have a .md extension: {path}")
+_HEADING = re.compile(r"(?m)^(#{1,6})[ \t]+(.+?)\s*$")
+_KIND = re.compile(r"^(?P<title>.+?)\s*\{(?P<kind>[a-z_]+)\}\s*$")
 
-    return {
-        "id": node_id,
-        "label": title,
-        "description": description,
-        "file": str(path.resolve()),
-        "content": path.read_text(encoding="utf-8"),
-    }
+
+def parse_markdown_node(path: Path) -> HotNode:
+    """Build the document node. The id is a fingerprint of type, path, and file name."""
+    resolved = _markdown_file(path)
+    text = resolved.read_text(encoding="utf-8")
+    sections = _sections(text)
+    label = _link_type(sections[0][0], "contains")[0] if sections else resolved.stem
+    return HotNode(
+        node_id("document", str(resolved), resolved.name),
+        "document",
+        label,
+        Provenance(str(resolved), None),
+    )
 
 
 def ingest_markdown_node(
     markdown_path: Path,
     graph_json_path: Path,
     *,
-    node_id: str,
-    title: str,
-    description: str,
-    parent_id: str | None = None,
+    edge_type: str = "contains",
 ) -> dict[str, Any]:
-    """Append one Markdown node, optionally as a child of an existing node."""
-    node = parse_markdown_node(
-        markdown_path.resolve(),
-        node_id=node_id,
-        title=title,
-        description=description,
-    )
+    """Add or update one Markdown file. Each heading links to the document.
+
+    ``edge_type`` is the link used when a heading does not name one. A heading
+    can name its own link: ``# Tokens {describes}``.
+    """
+    if edge_type not in EDGE_TYPES:
+        raise ValueError(f"unknown edge type: {edge_type}")
+    resolved = _markdown_file(markdown_path)
+    text = resolved.read_text(encoding="utf-8")
+    source_path = str(resolved)
+    document = parse_markdown_node(resolved)
     graph_path = graph_json_path.resolve()
     if not graph_path.is_file():
         raise FileNotFoundError(f"graph.json not found: {graph_path}")
-    graph = json.loads(graph_path.read_text(encoding="utf-8"))
-    if not isinstance(graph, dict) or not isinstance(graph.get("nodes"), list):
-        raise ValueError(f"invalid graph.json: {graph_path}")
-    if any(existing.get("id") == node["id"] for existing in graph["nodes"]):
-        raise ValueError(f"node already exists: {node['id']}")
-    graph.setdefault("links", graph.get("edges") or [])
-    if parent_id is not None and not any(
-        existing.get("id") == parent_id for existing in graph["nodes"]
-    ):
-        raise ValueError(f"parent node not found: {parent_id}")
-    graph["nodes"].append(node)
-    if parent_id is not None:
-        graph["links"].append(
-            {"source": parent_id, "target": node["id"], "type": "parent"}
+    name, graph = load_graph(graph_path)
+    created = document.id not in graph.nodes
+    graph.add_node(document)
+    graph.put_payload(document.id, text.encode("utf-8"))
+    for heading, body in _sections(text):
+        title, kind = _link_type(heading, edge_type)
+        chunk = HotNode(
+            node_id("chunk", source_path, title),
+            "chunk",
+            title,
+            Provenance(source_path, title),
         )
-    write_text_atomic(graph_path, json.dumps(graph, ensure_ascii=False, indent=2) + "\n")
-    return node
+        graph.add_node(chunk)
+        if body:
+            graph.put_payload(chunk.id, body.encode("utf-8"))
+        graph.add_edge(Edge(edge_id(document.id, chunk.id, kind), kind, document.id, chunk.id))
+    save_graph(graph_path, name, graph)
+    return {"id": document.id, "label": graph.nodes[document.id].label, "created": created}
+
+
+def _markdown_file(path: Path) -> Path:
+    resolved = path.resolve()
+    if not resolved.is_file():
+        raise FileNotFoundError(f"Markdown file not found: {resolved}")
+    if resolved.suffix.lower() != ".md":
+        raise ValueError(f"Markdown source must have a .md extension: {resolved}")
+    return resolved
+
+
+def _link_type(heading: str, default: str) -> tuple[str, str]:
+    match = _KIND.match(heading)
+    if match is None:
+        return heading, default
+    kind = match.group("kind")
+    if kind not in EDGE_TYPES:
+        raise ValueError(f"unknown edge type: {kind}")
+    return match.group("title").strip(), kind
+
+
+def _sections(text: str) -> list[tuple[str, str]]:
+    matches = list(_HEADING.finditer(text))
+    sections: list[tuple[str, str]] = []
+    for index, match in enumerate(matches):
+        start = match.end()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        sections.append((match.group(2).strip(), text[start:end].strip("\n")))
+    return sections
