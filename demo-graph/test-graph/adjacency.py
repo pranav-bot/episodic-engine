@@ -11,6 +11,7 @@ class MemoryGraph:
         self.edges: dict[str, Edge] = {}
         self.outgoing: dict[str, dict[str, dict[str, str]]] = {}
         self.incoming: dict[str, dict[str, dict[str, str]]] = {}
+        self.payloads: dict[str, bytes] = {}
 
     def add_node(self, node: HotNode) -> HotNode:
         found = self.nodes.get(node.id)
@@ -50,3 +51,11 @@ class MemoryGraph:
         else:
             ids = list(bucket.get(edge_type, ()))
         return tuple(sorted(ids))
+
+    def put_payload(self, node_id: str, body: bytes) -> None:
+        if node_id not in self.nodes:
+            raise KeyError(node_id)
+        self.payloads[node_id] = body
+
+    def get_payload(self, node_id: str) -> bytes:
+        return self.payloads[node_id]

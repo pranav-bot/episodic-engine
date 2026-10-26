@@ -101,3 +101,29 @@ def test_typed_neighbors_do_not_scan_the_adjacency_map():
     graph.outgoing[caller.id] = NoScan(graph.outgoing[caller.id])
 
     assert graph.neighbors(caller.id, edge_type="calls") == (callee.id,)
+
+
+def test_payload_change_does_not_change_neighbors():
+    graph = memory_graph()
+    caller = graph.add_node(hot_node("login", "login"))
+    callee = graph.add_node(hot_node("check", "check"))
+    graph.add_edge(Edge(edge_id(caller.id, callee.id, "calls"), "calls", caller.id, callee.id))
+    before = graph.neighbors(caller.id, edge_type="calls")
+
+    graph.put_payload(caller.id, b"source bytes")
+
+    assert graph.neighbors(caller.id, edge_type="calls") == before
+    assert set(HotNode.__dataclass_fields__) == {"id", "type", "label", "provenance_ref"}
+    assert caller.provenance_ref.source_path == "src/auth.py"
+
+
+def test_neighbors_does_not_read_payload():
+    graph = memory_graph()
+    caller = graph.add_node(hot_node("login", "login"))
+    graph.put_payload(caller.id, b"source bytes")
+
+    def fail(_node_id: str) -> bytes:
+        raise AssertionError("payload read")
+
+    graph.get_payload = fail
+    assert graph.neighbors(caller.id, edge_type="calls") == ()
