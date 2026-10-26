@@ -127,3 +127,35 @@ def test_neighbors_does_not_read_payload():
 
     graph.get_payload = fail
     assert graph.neighbors(caller.id, edge_type="calls") == ()
+
+
+def test_merge_copies_nodes_and_edges_that_exist_only_on_source():
+    into = memory_graph()
+    source = memory_graph()
+    login = into.add_node(hot_node("login", "login"))
+    check = source.add_node(hot_node("check", "check"))
+    source.add_node(hot_node("login", "login"))
+    source.add_edge(Edge(edge_id(login.id, check.id, "calls"), "calls", login.id, check.id))
+    source_labels = {node.label for node in source.nodes.values()}
+
+    into.merge(source)
+
+    assert check.id in into.nodes
+    assert into.neighbors(login.id, edge_type="calls") == (check.id,)
+    assert {node.label for node in source.nodes.values()} == source_labels
+
+
+def test_merge_keeps_destination_label_and_records_the_clash():
+    into = memory_graph()
+    source = memory_graph()
+    kept = into.add_node(hot_node("login", "login"))
+    source.add_node(HotNode(kept.id, "file", "renamed", Provenance("docs/login.md", None)))
+
+    into.merge(source)
+
+    assert into.nodes[kept.id].label == "login"
+    assert into.nodes[kept.id].type == "symbol"
+    assert into.nodes[kept.id].provenance_ref.source_path == "src/auth.py"
+    assert {item.field for item in into.conflicts} == {"label", "type"}
+    assert into.extra_provenance[kept.id][0].source_path == "docs/login.md"
+    assert source.nodes[kept.id].label == "renamed"

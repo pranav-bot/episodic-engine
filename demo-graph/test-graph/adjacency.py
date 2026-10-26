@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from episodic.model.types import Edge, HotNode
+from episodic.model.types import Edge, HotNode, MergeConflict, Provenance
 
 
 class MemoryGraph:
@@ -12,6 +12,8 @@ class MemoryGraph:
         self.outgoing: dict[str, dict[str, dict[str, str]]] = {}
         self.incoming: dict[str, dict[str, dict[str, str]]] = {}
         self.payloads: dict[str, bytes] = {}
+        self.extra_provenance: dict[str, list[Provenance]] = {}
+        self.conflicts: list[MergeConflict] = []
 
     def add_node(self, node: HotNode) -> HotNode:
         found = self.nodes.get(node.id)
@@ -59,3 +61,25 @@ class MemoryGraph:
 
     def get_payload(self, node_id: str) -> bytes:
         return self.payloads[node_id]
+
+    def merge(self, source: MemoryGraph) -> None:
+        """Union source into this graph. source is left unchanged."""
+        for node in source.nodes.values():
+            current = self.nodes.get(node.id)
+            if current is None:
+                self.add_node(node)
+                continue
+            clashed = False
+            if current.label != node.label:
+                self.conflicts.append(
+                    MergeConflict(node.id, "label", current.label, node.label)
+                )
+                clashed = True
+            if current.type != node.type:
+                self.conflicts.append(MergeConflict(node.id, "type", current.type, node.type))
+                clashed = True
+            if clashed:
+                self.extra_provenance.setdefault(node.id, []).append(node.provenance_ref)
+        for edge in source.edges.values():
+            if edge.id not in self.edges:
+                self.add_edge(edge)
