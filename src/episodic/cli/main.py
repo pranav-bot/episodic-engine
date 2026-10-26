@@ -7,7 +7,7 @@ from pathlib import Path
 
 import typer
 
-from episodic.graph import GRAPH_STRUCTURE, create_graph
+from episodic.graph import GRAPH_STRUCTURE, create_graph, list_graphs
 from episodic.ingest.markdown_node import ingest_markdown_node
 
 app = typer.Typer(
@@ -30,6 +30,30 @@ def create_graph_cmd(
 
     typer.echo(f"created: {graph_path}")
     typer.echo(GRAPH_STRUCTURE)
+
+
+@app.command("graphs")
+def graphs_cmd(
+    directory: Path = typer.Option(
+        Path("."),
+        "--directory",
+        help="Directory to search recursively for graph.json files",
+    ),
+) -> None:
+    """List graph.json files and their node/link counts."""
+    try:
+        graphs = list_graphs(directory)
+    except FileNotFoundError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+
+    if not graphs:
+        typer.echo(f"No graphs found under {directory.resolve()}")
+        return
+
+    typer.echo(f"{'graph':<60} {'nodes':>5} {'links':>5}")
+    for path, node_count, link_count in graphs:
+        typer.echo(f"{str(path):<60} {node_count:>5} {link_count:>5}")
 
 
 @app.command("ingest-node")

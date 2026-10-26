@@ -12,24 +12,23 @@ GRAPH_STRUCTURE = """Graph files use this JSON structure:
   "nodes": [
     {
       "id": "auth-note",
-      "type": "concept",
       "label": "Authentication",
+      "description": "What this node represents",
       "file": "/path/to/note.md",
       "content": "Markdown body",
-      "...": "additional properties"
     }
   ],
   "links": [
     {
       "source": "auth-note",
       "target": "other-node",
-      "type": "related"
+      "type": "parent"
     }
   ]
 }
 
 Add a Markdown node with:
-  episodic ingest-node --id <subgraph-id> --source <node.md> --graph-json <graph.json>
+  episodic ingest-node --source <node.md> --graph-json <graph.json>
 """
 
 
@@ -45,3 +44,25 @@ def create_graph(directory: Path) -> Path:
         encoding="utf-8",
     )
     return graph_path
+
+
+def list_graphs(directory: Path) -> list[tuple[Path, int, int]]:
+    """Find valid graph.json files below a directory."""
+    root = directory.resolve()
+    if not root.is_dir():
+        raise FileNotFoundError(f"directory not found: {root}")
+
+    graphs: list[tuple[Path, int, int]] = []
+    for path in sorted(root.rglob("graph.json")):
+        if any(part.startswith(".") for part in path.relative_to(root).parts):
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            nodes = data["nodes"]
+            links = data.get("links", data.get("edges", []))
+            if not isinstance(nodes, list) or not isinstance(links, list):
+                raise ValueError
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError, ValueError):
+            continue
+        graphs.append((path, len(nodes), len(links)))
+    return graphs
