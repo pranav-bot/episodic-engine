@@ -4,7 +4,6 @@ version = "0.1.0"
 description = "Episodic memory layer for graphify knowledge graphs"
 requires-python = ">=3.11"
 dependencies = [
-    "pydantic>=2.0",
     "typer>=0.12",
     "pyyaml>=6.0",
 ]

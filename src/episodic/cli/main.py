@@ -1,8 +1,4 @@
-"""CLI for Episodic Engine.
-
-Provides commands for initializing the engine, saving snapshots,
-and checking status of tracked subgraphs.
-"""
+"""CLI for file-based graph creation and Markdown node ingestion."""
 
 from __future__ import annotations
 
@@ -10,180 +6,125 @@ import json
 from pathlib import Path
 
 import typer
-import yaml
 
-from episodic.config import load_config
-from episodic.graph import GRAPH_STRUCTURE, create_graph
-from episodic.init_service import is_initialized, run_init
+from episodic.graph import (
+    GRAPH_STRUCTURE,
+    create_graph,
+    list_registered_graphs,
+    register_graph,
+)
 from episodic.ingest.markdown_node import ingest_markdown_node
-from episodic.ingest.save_pipeline import GraphifyRunError, SavePipeline
 
 app = typer.Typer(
     name="episodic",
-    help="Episodic memory layer for graphify knowledge graphs.",
+    help=(
+        "Create and manage file-based knowledge graphs.\n\n"
+        "Typical workflow:\n"
+        "  1. episodic create-graph --directory ./my-graph\n"
+        "  2. episodic ingest-node --source note.md "
+        "--graph-json ./my-graph/graph.json\n"
+        "  3. episodic graphs"
+    ),
     no_args_is_help=True,
 )
 
 
 @app.command("create-graph")
 def create_graph_cmd(
-    directory: Path = typer.Option(..., "--directory", help="Directory for graph.json"),
-    id: str | None = typer.Option(
-        None, "--id", help="Subgraph slug to register the empty graph"
-    ),
-    register: bool = typer.Option(
-        False, "--register", help="Persist the empty graph in Episodic storage"
+    directory: Path = typer.Option(
+        Path(".episodic"),
+        "--directory",
+        help="Directory for graph.json (default: .episodic/)",
     ),
 ) -> None:
-    """Create an empty graph and explain how to add nodes."""
-    if register and not id:
-        typer.secho("--id is required with --register", fg=typer.colors.RED, err=True)
-        raise typer.Exit(code=1)
+    """Create an empty graph.json.
 
+    The command creates the directory when needed and never overwrites an
+    existing graph.json.
+
+    Example:
+        episodic create-graph --directory ./my-graph
+    """
     try:
         graph_path = create_graph(directory)
-        if register:
-            _require_init()
-            result = SavePipeline(load_config()).save(
-                id,
-                source=directory,
-                skip_graphify=True,
-                graph_json_path=graph_path,
-            )
-    except (FileExistsError, FileNotFoundError, ValueError, OSError) as exc:
+        register_graph(graph_path)
+    except (FileExistsError, OSError, ValueError, json.JSONDecodeError) as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1) from exc
 
     typer.echo(f"created: {graph_path}")
-    if register:
-        typer.echo(f"registered: subgraph={result.subgraph_id} episode={result.episode_id}")
     typer.echo(GRAPH_STRUCTURE)
 
 
-def _require_init() -> None:
-    """Check if engine is initialized, exit if not.
-
-    Raises:
-        typer.Exit: If not initialized
-    """
-    config = load_config()
-    if not is_initialized(config):
-        typer.secho(
-            "Episodic Engine is not initialized. Run: episodic init",
-            fg=typer.colors.RED,
-            err=True,
-        )
-        raise typer.Exit(code=1)
-
-
-@app.command("init")
-def init_cmd() -> None:
-    """Create local data dir, SQLite schema, config, and install graphify."""
-    config = load_config()
-    try:
-        marker = run_init(config)
-    except GraphifyRunError as exc:
-        typer.secho(str(exc), fg=typer.colors.RED, err=True)
-        raise typer.Exit(code=1) from exc
-
-    typer.echo("Episodic Engine initialized.")
-    typer.echo(f"  data dir:  {config.data_dir}")
-    typer.echo(f"  episodes:  {config.episode_db_path}")
-    typer.echo(f"  snapshots: {config.snapshots_dir}")
-    typer.echo(f"  marker:    {marker}")
-
-
-@app.command("save")
-def save_cmd(
-    id: str = typer.Option(..., "--id", help="Subgraph slug (e.g. myrepo-code)"),
-    source: Path = typer.Option(..., "--source", help="Corpus path for graphify"),
-    graphify_out: Path | None = typer.Option(
-        None, "--graphify-out", help="Override graphify-out directory"
-    ),
-    graph_json: Path | None = typer.Option(
-        None, "--graph-json", help="Use existing graph.json instead of running graphify"
-    ),
+@app.command("graphs")
+def graphs_cmd(
 ) -> None:
-    """Run graphify on source and persist the subgraph snapshot + episode."""
-    _require_init()
-    config = load_config()
-    pipeline = SavePipeline(config)
+    """List every graph recorded in ~/.episodic/graphs.json."""
     try:
-        result = pipeline.save(
-            id,
-            source,
-            graphify_out,
-            skip_graphify=graph_json is not None,
-            graph_json_path=graph_json,
-        )
-    except (GraphifyRunError, FileNotFoundError, ValueError) as exc:
+        graphs = list_registered_graphs()
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1) from exc
 
-    if result.status == "unchanged":
-        typer.echo(
-            f"unchanged: subgraph={result.subgraph_id} hash={result.snapshot_hash} "
-            f"nodes={result.node_count} edges={result.edge_count}"
-        )
+    if not graphs:
+        typer.echo("No graphs registered.")
         return
 
-    typer.echo(
-        f"saved: subgraph={result.subgraph_id} episode={result.episode_id} "
-        f"ops={result.ops_total} hash={result.snapshot_hash} "
-        f"nodes={result.node_count} edges={result.edge_count}"
-    )
+    typer.echo(f"{'graph':<60} {'nodes':>5} {'links':>5} status")
+    for path, node_count, link_count in graphs:
+        if node_count is None:
+            typer.echo(f"{str(path):<60} {'-':>5} {'-':>5} missing or invalid")
+        else:
+            typer.echo(f"{str(path):<60} {node_count:>5} {link_count:>5} ok")
 
 
 @app.command("ingest-node")
 def ingest_node_cmd(
-    id: str = typer.Option(..., "--id", help="Subgraph slug (e.g. myrepo-code)"),
     source: Path = typer.Option(..., "--source", help="Markdown node file"),
-    graph_json: Path | None = typer.Option(
-        None,
-        "--graph-json",
-        help="Existing graph.json to append this node to; omit for a one-node graph",
-    ),
+    graph_json: Path = typer.Option(..., "--graph-json", help="Graph file to update"),
 ) -> None:
-    """Ingest one Markdown node as a graph snapshot."""
-    _require_init()
-    config = load_config()
+    """Interactively append a Markdown node to a graph.
+
+    The Markdown file is stored as the node content. The command asks for the
+    node ID, title, description, and optional parent ID.
+
+    Leave the parent ID blank to create a top-level node. Use an existing node
+    ID to create a parent link and build a chain.
+
+    Example:
+        episodic ingest-node --source note.md --graph-json ./my-graph/graph.json
+    """
+    graph_path = graph_json.resolve()
     try:
-        result = ingest_markdown_node(
-            SavePipeline(config), id, source, graph_json_path=graph_json
+        graph = json.loads(graph_path.read_text(encoding="utf-8"))
+        if not isinstance(graph, dict) or not isinstance(graph.get("nodes"), list):
+            raise ValueError(f"invalid graph.json: {graph_path}")
+        existing_ids = [str(node.get("id")) for node in graph["nodes"]]
+        typer.echo(
+            "Existing node IDs: "
+            + (", ".join(existing_ids) if existing_ids else "(none; node will be top-level)")
         )
-    except (FileNotFoundError, ValueError, OSError, yaml.YAMLError, json.JSONDecodeError) as exc:
+        node_id = typer.prompt("Node ID")
+        title = typer.prompt("Node title")
+        description = typer.prompt("Node description")
+        parent_id = typer.prompt(
+            "Parent node ID (leave blank for a top-level node)",
+            default="",
+            show_default=False,
+        ) or None
+        node = ingest_markdown_node(
+            source,
+            graph_path,
+            node_id=node_id,
+            title=title,
+            description=description,
+            parent_id=parent_id,
+        )
+    except (FileNotFoundError, ValueError, OSError, json.JSONDecodeError) as exc:
         typer.secho(str(exc), fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1) from exc
 
-    typer.echo(
-        f"{result.status}: subgraph={result.subgraph_id} "
-        f"episode={result.episode_id or '-'} nodes={result.node_count} "
-        f"edges={result.edge_count}"
-    )
-
-
-@app.command("status")
-def status_cmd() -> None:
-    """List registered subgraphs and episode counts."""
-    _require_init()
-    config = load_config()
-    store = SavePipeline(config).store
-    rows = store.list_status()
-    if not rows:
-        typer.echo("No subgraphs registered.")
-        return
-
-    typer.echo(
-        f"{'subgraph_id':<20} {'hash':<14} {'episodes':>8}  {'last_seen_at':<22} source"
-    )
-    for row in rows:
-        short_hash = "-"
-        if row.latest_snapshot_hash:
-            short_hash = row.latest_snapshot_hash.replace("sha256:", "")[:12] + "…"
-        typer.echo(
-            f"{row.subgraph_id:<20} {short_hash:<14} {row.episode_count:>8}  "
-            f"{row.last_seen_at or '-':<22} {row.source_path}"
-        )
+    typer.echo(f"added: node={node['id']} graph={graph_json.resolve()}")
 
 
 if __name__ == "__main__":

@@ -1,63 +1,97 @@
+import json
+
+import pytest
+
 from episodic.ingest.markdown_node import ingest_markdown_node, parse_markdown_node
-from episodic.ingest.save_pipeline import SavePipeline
-from episodic.init_service import run_init
 
 
 def test_parse_markdown_node_reads_frontmatter_and_body(tmp_path):
     path = tmp_path / "note.md"
-    path.write_text(
-        """---
-id: auth-note
-type: concept
-title: Authentication
-tags:
-  - security
----
-JWT validation happens here.
-""",
-        encoding="utf-8",
-    )
+    path.write_text("Details\n", encoding="utf-8")
 
-    node = parse_markdown_node(path)
+    node = parse_markdown_node(
+        path,
+        node_id="auth-note",
+        title="Authentication",
+        description="Handles user authentication.",
+    )
 
     assert node["id"] == "auth-note"
-    assert node["type"] == "concept"
     assert node["label"] == "Authentication"
-    assert node["tags"] == ["security"]
-    assert node["content"] == "JWT validation happens here."
+    assert node["content"] == "Details\n"
 
 
-def test_ingest_markdown_node_creates_one_node_snapshot(temp_config, stores, tmp_path):
-    run_init(temp_config)
+def test_ingest_markdown_node_updates_graph_file(tmp_path):
     markdown = tmp_path / "note.md"
-    markdown.write_text(
-        "---\nid: auth-note\ntype: concept\ntitle: Authentication\n---\nDetails\n",
-        encoding="utf-8",
-    )
-
-    result = ingest_markdown_node(
-        SavePipeline(temp_config), "notes", markdown
-    )
-
-    assert result.status == "saved"
-    assert result.node_count == 1
-    assert result.edge_count == 0
-
-
-def test_ingest_markdown_node_appends_to_existing_graph(
-    temp_config, stores, tmp_path
-):
-    run_init(temp_config)
-    markdown = tmp_path / "note.md"
-    markdown.write_text(
-        "---\nid: auth-note\ntype: concept\ntitle: Authentication\n---\nDetails\n",
-        encoding="utf-8",
-    )
+    markdown.write_text("Details\n", encoding="utf-8")
     graph = tmp_path / "graph.json"
     graph.write_text('{"nodes": [], "links": []}', encoding="utf-8")
 
-    result = ingest_markdown_node(
-        SavePipeline(temp_config), "notes", markdown, graph_json_path=graph
+    node = ingest_markdown_node(
+        markdown,
+        graph,
+        node_id="auth-note",
+        title="Authentication",
+        description="Handles user authentication.",
     )
 
-    assert result.node_count == 1
+    assert node["id"] == "auth-note"
+    assert json.loads(graph.read_text(encoding="utf-8"))["nodes"] == [node]
+
+
+def test_ingest_markdown_node_rejects_duplicate_id(tmp_path):
+    markdown = tmp_path / "note.md"
+    markdown.write_text("Details\n", encoding="utf-8")
+    graph = tmp_path / "graph.json"
+    graph.write_text(
+        '{"nodes": [{"id": "auth-note"}], "links": []}', encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError, match="node already exists"):
+        ingest_markdown_node(
+            markdown,
+            graph,
+            node_id="auth-note",
+            title="Authentication",
+            description="Handles user authentication.",
+        )
+
+
+def test_ingest_markdown_node_creates_parent_child_link(tmp_path):
+    markdown = tmp_path / "child.md"
+    markdown.write_text("Child details\n", encoding="utf-8")
+    graph = tmp_path / "graph.json"
+    graph.write_text(
+        '{"nodes": [{"id": "root"}], "links": []}', encoding="utf-8"
+    )
+
+    ingest_markdown_node(
+        markdown,
+        graph,
+        node_id="child",
+        title="Child",
+        description="Child node.",
+        parent_id="root",
+    )
+
+    saved = json.loads(graph.read_text(encoding="utf-8"))
+    assert saved["links"] == [
+        {"source": "root", "target": "child", "type": "parent"}
+    ]
+
+
+def test_ingest_markdown_node_rejects_missing_parent(tmp_path):
+    markdown = tmp_path / "child.md"
+    markdown.write_text("Child details\n", encoding="utf-8")
+    graph = tmp_path / "graph.json"
+    graph.write_text('{"nodes": [], "links": []}', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="parent node not found"):
+        ingest_markdown_node(
+            markdown,
+            graph,
+            node_id="child",
+            title="Child",
+            description="Child node.",
+            parent_id="missing",
+        )

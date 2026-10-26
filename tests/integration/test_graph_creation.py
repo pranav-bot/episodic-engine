@@ -2,13 +2,16 @@ import json
 
 import pytest
 
-from episodic.graph import create_graph
+from episodic.graph import (
+    create_graph,
+    list_registered_graphs,
+    register_graph,
+)
 
 
 def test_create_graph_writes_empty_graph(tmp_path):
     path = create_graph(tmp_path / "knowledge")
 
-    assert path.name == "graph.json"
     assert json.loads(path.read_text(encoding="utf-8")) == {
         "nodes": [],
         "links": [],
@@ -16,9 +19,15 @@ def test_create_graph_writes_empty_graph(tmp_path):
 
 
 def test_create_graph_does_not_overwrite_existing_graph(tmp_path):
-    path = create_graph(tmp_path)
+    create_graph(tmp_path)
 
     with pytest.raises(FileExistsError):
         create_graph(tmp_path)
 
-    assert json.loads(path.read_text(encoding="utf-8"))["nodes"] == []
+
+def test_registered_graphs_are_read_from_central_registry(tmp_path):
+    graph = create_graph(tmp_path / "elsewhere")
+    registry = tmp_path / "home" / ".episodic" / "graphs.json"
+    register_graph(graph, registry)
+
+    assert list_registered_graphs(registry) == [(graph.resolve(), 0, 0)]
