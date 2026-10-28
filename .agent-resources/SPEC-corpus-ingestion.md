@@ -1,7 +1,7 @@
 # Spec: corpus-ingestion
 
 **Module id:** `corpus-ingestion`  
-**Status:** Draft for review (2026-10-27)  
+**Status:** Draft for review (2026-10-27). The first build cut is narrower: Python and Markdown only, over a stdio MCP create tool. See [ADR-001](../docs/decisions/ADR-001-stdio-mcp-context-graph.md). PDFs, images, and the model organizer stay in this spec for a later slice.  
 **Map:** [capability-map-initial-graph.md](./capability-map-initial-graph.md)  
 **Depends on:** [SPEC-graph-model.md](./SPEC-graph-model.md)  
 **Background:** [08-graphify-integration.md](./08-graphify-integration.md), [prds/2026-07-06-single-subgraph-save.md](./prds/2026-07-06-single-subgraph-save.md)

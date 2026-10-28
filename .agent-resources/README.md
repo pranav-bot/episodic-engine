@@ -44,6 +44,8 @@ The **Grand Plan** and the **July 2026 architecture set** describe the same syst
 | — | [SPEC-graph-model](./SPEC-graph-model.md) | Traversal-oriented node and edge contract |
 | — | [SPEC-corpus-ingestion](./SPEC-corpus-ingestion.md) | Folder → graph; coding repo benchmark |
 | — | [SPEC-graph-search](./SPEC-graph-search.md) | Bounded search with 10k / 100k / 1M milestones |
+| — | [ADR-001](../docs/decisions/ADR-001-stdio-mcp-context-graph.md) | **Accepted** — stdio MCP creates a Python + Markdown context graph |
+| — | [Context graph idea](../docs/ideas/context-graph-from-folder.md) | One-pager for that first harness slice |
 
 ---
 
