@@ -28,31 +28,24 @@ def parse_markdown_node(path: Path) -> HotNode:
     )
 
 
-def ingest_markdown_node(
-    markdown_path: Path,
-    graph_json_path: Path,
-    *,
-    edge_type: str = "contains",
-) -> dict[str, Any]:
-    """Add or update one Markdown file. Each heading links to the document.
-
-    ``edge_type`` is the link used when a heading does not name one. A heading
-    can name its own link: ``# Tokens {describes}``.
-    """
+def add_markdown_file(graph: Any, markdown_path: Path, *, edge_type: str = "contains") -> str:
+    """Add one Markdown file to an in-memory graph. Does not write the file."""
     if edge_type not in EDGE_TYPES:
         raise ValueError(f"unknown edge type: {edge_type}")
     resolved = _markdown_file(markdown_path)
     text = resolved.read_text(encoding="utf-8")
     source_path = str(resolved)
-    document = parse_markdown_node(resolved)
-    graph_path = graph_json_path.resolve()
-    if not graph_path.is_file():
-        raise FileNotFoundError(f"graph.json not found: {graph_path}")
-    name, graph = load_graph(graph_path)
-    created = document.id not in graph.nodes
+    sections = _sections(text)
+    label = _link_type(sections[0][0], edge_type)[0] if sections else resolved.stem
+    document = HotNode(
+        node_id("document", source_path, resolved.name),
+        "document",
+        label,
+        Provenance(source_path, None),
+    )
     graph.add_node(document)
     graph.put_payload(document.id, text.encode("utf-8"))
-    for heading, body in _sections(text):
+    for heading, body in sections:
         title, kind = _link_type(heading, edge_type)
         chunk = HotNode(
             node_id("chunk", source_path, title),
@@ -64,6 +57,28 @@ def ingest_markdown_node(
         if body:
             graph.put_payload(chunk.id, body.encode("utf-8"))
         graph.add_edge(Edge(edge_id(document.id, chunk.id, kind), kind, document.id, chunk.id))
+    return document.id
+
+
+def ingest_markdown_node(
+    markdown_path: Path,
+    graph_json_path: Path,
+    *,
+    edge_type: str = "contains",
+) -> dict[str, Any]:
+    """Add or update one Markdown file. Each heading links to the document.
+
+    ``edge_type`` is the link used when a heading does not name one. A heading
+    can name its own link: ``# Tokens {describes}``.
+    """
+    resolved = _markdown_file(markdown_path)
+    graph_path = graph_json_path.resolve()
+    if not graph_path.is_file():
+        raise FileNotFoundError(f"graph.json not found: {graph_path}")
+    name, graph = load_graph(graph_path)
+    document = parse_markdown_node(resolved)
+    created = document.id not in graph.nodes
+    add_markdown_file(graph, resolved, edge_type=edge_type)
     save_graph(graph_path, name, graph)
     return {"id": document.id, "label": graph.nodes[document.id].label, "created": created}
 

@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from episodic.graph import create_graph, register_graph, registry_path, resolve_registered_graph
-from episodic.ingest.markdown_node import ingest_markdown_node, parse_markdown_node
-from episodic.model.document import load_graph, memory_graph_class, save_graph
+from episodic.ingest.markdown_node import add_markdown_file
+from episodic.model.document import memory_graph_class, save_graph
 from episodic.model.identity import edge_id, node_id
 from episodic.model.types import Edge, HotNode, Provenance
 
@@ -25,25 +25,27 @@ def create_context_graph(folder: Path, name: str, *, registry: Path | None = Non
     if not name:
         raise ValueError("graph name cannot be empty")
     registry = registry or registry_path()
-    graph_path = _graph_path(name, registry)
+    _reject_escaped_name(name, registry)
     graph = memory_graph_class()()
-    markdown_files = _fill_tree(graph, folder)
+    _fill_tree(graph, folder)
+    graph_path = _graph_path(name, registry)
     save_graph(graph_path, name, graph)
-    for path in markdown_files:
-        ingest_markdown_node(path, graph_path)
-        document_id = parse_markdown_node(path).id
-        parent_id = _directory_id(path.parent)
-        _link_saved(graph_path, parent_id, document_id)
-    _name, saved = load_graph(graph_path)
     return {
         "name": name,
         "path": str(graph_path),
-        "nodes": [{"id": node.id, "type": node.type, "label": node.label} for node in saved.nodes.values()],
+        "nodes": [{"id": node.id, "type": node.type, "label": node.label} for node in graph.nodes.values()],
         "edges": [
             {"type": edge.type, "source": edge.source, "target": edge.target}
-            for edge in saved.edges.values()
+            for edge in graph.edges.values()
         ],
     }
+
+
+def _reject_escaped_name(name: str, registry: Path) -> None:
+    root = (registry.parent / "graphs").resolve()
+    chosen = (root / name).resolve()
+    if chosen == root or not chosen.is_relative_to(root):
+        raise ValueError(f"graph name must stay inside the graphs directory: {name}")
 
 
 def _graph_path(name: str, registry: Path) -> Path:
@@ -55,8 +57,7 @@ def _graph_path(name: str, registry: Path) -> Path:
         return path
 
 
-def _fill_tree(graph: Any, folder: Path) -> list[Path]:
-    markdown: list[Path] = []
+def _fill_tree(graph: Any, folder: Path) -> None:
     python: list[tuple[Path, ast.AST]] = []
     for directory, dirnames, filenames in os.walk(folder):
         dirnames[:] = sorted(name for name in dirnames if name not in _SKIP)
@@ -69,7 +70,8 @@ def _fill_tree(graph: Any, folder: Path) -> list[Path]:
             if path.suffix == ".py":
                 python.append((path, _parsed(path)))
             elif path.suffix.lower() == ".md":
-                markdown.append(path)
+                document_id = add_markdown_file(graph, path)
+                _contains(graph, _directory_id(path.parent), document_id)
     symbols: dict[Path, dict[str, str]] = {}
     file_ids: dict[Path, str] = {}
     for path, tree in python:
@@ -80,23 +82,31 @@ def _fill_tree(graph: Any, folder: Path) -> list[Path]:
         symbols[path.resolve()] = _add_symbols(graph, file_node.id, path, tree)
     for path, tree in python:
         _add_imports_and_calls(graph, folder, path, tree, file_ids, symbols)
-    return markdown
 
 
 def _add_symbols(graph: Any, file_id: str, path: Path, tree: ast.AST) -> dict[str, str]:
     found: dict[str, str] = {}
-    for node in ast.walk(tree):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            continue
-        symbol = HotNode(
-            node_id("symbol", str(path.resolve()), node.name),
-            "symbol",
-            node.name,
-            Provenance(str(path.resolve()), str(node.lineno)),
-        )
-        graph.add_node(symbol)
-        _contains(graph, file_id, symbol.id)
-        found[node.name] = symbol.id
+    source = str(path.resolve())
+
+    def walk(node: ast.AST, prefix: str) -> None:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            qual = f"{prefix}.{node.name}" if prefix else node.name
+            symbol = HotNode(
+                node_id("symbol", source, qual),
+                "symbol",
+                node.name,
+                Provenance(source, str(node.lineno)),
+            )
+            graph.add_node(symbol)
+            _contains(graph, file_id, symbol.id)
+            found[qual] = symbol.id
+            for child in node.body:
+                walk(child, qual)
+            return
+        for child in ast.iter_child_nodes(node):
+            walk(child, prefix)
+
+    walk(tree, "")
     return found
 
 
@@ -145,6 +155,14 @@ def _calls(
     class Scan(ast.NodeVisitor):
         def __init__(self) -> None:
             self.caller = file_id
+            self.stack = [""]
+
+        def visit_ClassDef(self, node: ast.ClassDef) -> None:
+            qual = _qual(self.stack[-1], node.name)
+            self.stack.append(qual)
+            for child in node.body:
+                self.visit(child)
+            self.stack.pop()
 
         def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
             self._enter(node)
@@ -153,14 +171,17 @@ def _calls(
             self._enter(node)
 
         def _enter(self, node: ast.AST) -> None:
+            qual = _qual(self.stack[-1], getattr(node, "name", ""))
             previous = self.caller
-            self.caller = local.get(getattr(node, "name", ""), previous)
+            self.caller = local.get(qual, previous)
+            self.stack.append(qual)
             for child in getattr(node, "body", []):
                 self.visit(child)
+            self.stack.pop()
             self.caller = previous
 
         def visit_Call(self, node: ast.Call) -> None:
-            target = _call_target(node.func, local, bindings, modules, symbols)
+            target = _call_target(node.func, self.stack, local, bindings, modules, symbols)
             if target is not None and target != self.caller:
                 graph.add_edge(Edge(edge_id(self.caller, target, "calls"), "calls", self.caller, target))
             self.generic_visit(node)
@@ -168,15 +189,27 @@ def _calls(
     Scan().visit(tree)
 
 
+def _qual(prefix: str, name: str) -> str:
+    return f"{prefix}.{name}" if prefix else name
+
+
 def _call_target(
     func: ast.expr,
+    stack: list[str],
     local: dict[str, str],
     bindings: dict[str, str],
     modules: dict[str, Path],
     symbols: dict[Path, dict[str, str]],
 ) -> str | None:
     if isinstance(func, ast.Name):
-        return bindings.get(func.id) or local.get(func.id)
+        imported = bindings.get(func.id)
+        if imported is not None:
+            return imported
+        for prefix in reversed(stack):
+            qual = _qual(prefix, func.id)
+            if qual in local:
+                return local[qual]
+        return None
     if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
         module = modules.get(func.value.id)
         if module is None:
@@ -214,14 +247,6 @@ def _lookup(root: Path, parts: list[str]) -> Path | None:
     return None
 
 
-def _link_saved(graph_path: Path, source: str, target: str) -> None:
-    name, graph = load_graph(graph_path)
-    if target not in graph.nodes or source not in graph.nodes:
-        return
-    graph.add_edge(Edge(edge_id(source, target, "contains"), "contains", source, target))
-    save_graph(graph_path, name, graph)
-
-
 def _directory_node(path: Path) -> HotNode:
     resolved = str(path.resolve())
     return HotNode(_directory_id(path), "directory", path.name, Provenance(resolved, None))
@@ -249,3 +274,5 @@ def _parsed(path: Path) -> ast.AST:
         return ast.parse(path.read_text(encoding="utf-8"))
     except SyntaxError as exc:
         raise ValueError(f"cannot parse {path}: {exc.msg}") from exc
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"cannot parse {path}: not valid UTF-8") from exc
